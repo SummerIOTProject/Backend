@@ -1,0 +1,17 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+venv/
+.env
+smart_meal.db
+test.db
+uploads/*
+!uploads/before/
+!uploads/after/
+!uploads/before/.gitkeep
+!uploads/after/.gitkeep
