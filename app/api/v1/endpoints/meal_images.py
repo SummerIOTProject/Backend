@@ -1,5 +1,7 @@
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, File, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.api.dependencies import get_image_service, get_meal_record_service
 from app.api.mappers.response_mappers import to_meal_image_response
@@ -54,4 +56,8 @@ def list_my_images(
 @router.get("/me/meal-images/{image_id}")
 def get_my_meal_image(image_id: int, current_user=Depends(get_current_user), image_service: ImageService = Depends(get_image_service)):
     image = image_service.get_image_for_user(image_id, current_user.id, is_admin=(getattr(current_user.role, "value", current_user.role) == "ADMIN"))
-    return FileResponse(path=image_service.resolve_image_path(image), media_type=image.mime_type)
+    headers = {"X-Content-Type-Options": "nosniff"}
+    path = image_service.resolve_image_path(image)
+    if path is not None:
+        return FileResponse(path=path, media_type=image.mime_type, headers=headers)
+    return StreamingResponse(BytesIO(image_service.read_image_bytes(image)), media_type=image.mime_type, headers=headers)

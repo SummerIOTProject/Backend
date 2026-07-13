@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     DATABASE_URL: str = "sqlite:///./meal_service.db"
+    DATABASE_URL_UNPOOLED: str | None = None
     SCHOOL_NAME: str = "국민대학교"
     APP_TIMEZONE: str = "Asia/Seoul"
 
@@ -34,10 +36,14 @@ class Settings(BaseSettings):
     VISION_TIMEOUT_SECONDS: int = 60
     VISION_MAX_RETRIES: int = 2
 
+    STORAGE_BACKEND: str = "LOCAL"
+    BLOB_STORE_ID: str | None = None
+    BLOB_READ_WRITE_TOKEN: str | None = None
+    VERCEL_OIDC_TOKEN: str | None = None
     UPLOAD_DIR: str = "uploads"
-    MAX_IMAGE_SIZE_MB: int = 10
-    ANALYSIS_IMAGE_MAX_DIMENSION: int = 2048
-    ANALYSIS_IMAGE_JPEG_QUALITY: int = 85
+    MAX_IMAGE_SIZE_MB: int = 4
+    ANALYSIS_IMAGE_MAX_DIMENSION: int = 1600
+    ANALYSIS_IMAGE_JPEG_QUALITY: int = 80
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"])
 
     model_config = SettingsConfigDict(
@@ -60,11 +66,29 @@ class Settings(BaseSettings):
         return self.DATABASE_URL.startswith("sqlite")
 
     @property
+    def is_postgresql(self) -> bool:
+        return self.DATABASE_URL.startswith("postgresql+psycopg://")
+
+    @property
     def resolved_openai_model(self) -> str | None:
         return self.OPENAI_MODEL or self.VISION_MODEL
 
+    @property
+    def is_vercel_blob(self) -> bool:
+        return self.STORAGE_BACKEND == "VERCEL_BLOB"
+
+    @property
+    def is_vercel_runtime(self) -> bool:
+        return bool(os.getenv("VERCEL"))
+
+    @property
+    def has_blob_auth(self) -> bool:
+        return bool(self.BLOB_READ_WRITE_TOKEN or os.getenv("BLOB_READ_WRITE_TOKEN"))
+
     @staticmethod
     def normalize_database_url(value: str) -> str:
+        if not value:
+            return value
         if value == "sqlite:///./smart_meal.db":
             return "sqlite:///./meal_service.db"
         if value.startswith("postgres://"):
@@ -76,9 +100,14 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_runtime_settings(self):
         self.DATABASE_URL = self.normalize_database_url(self.DATABASE_URL)
+        if self.DATABASE_URL_UNPOOLED:
+            self.DATABASE_URL_UNPOOLED = self.normalize_database_url(self.DATABASE_URL_UNPOOLED)
         allowed_modes = {"MOCK", "GEMINI_VLM", "OPENAI_VLM"}
+        allowed_storage_backends = {"LOCAL", "VERCEL_BLOB"}
         if self.VISION_ANALYSIS_MODE not in allowed_modes:
             raise ValueError("VISION_ANALYSIS_MODE must be one of MOCK, GEMINI_VLM, OPENAI_VLM.")
+        if self.STORAGE_BACKEND not in allowed_storage_backends:
+            raise ValueError("STORAGE_BACKEND must be one of LOCAL, VERCEL_BLOB.")
         if self.VISION_ANALYSIS_MODE == "GEMINI_VLM":
             if not self.GEMINI_API_KEY:
                 raise ValueError("GEMINI_API_KEY is required when VISION_ANALYSIS_MODE=GEMINI_VLM.")
@@ -89,6 +118,11 @@ class Settings(BaseSettings):
                 raise ValueError("OPENAI_API_KEY is required when VISION_ANALYSIS_MODE=OPENAI_VLM.")
             if not self.resolved_openai_model:
                 raise ValueError("OPENAI_MODEL or legacy VISION_MODEL is required when VISION_ANALYSIS_MODE=OPENAI_VLM.")
+        if self.STORAGE_BACKEND == "VERCEL_BLOB":
+            if not self.BLOB_STORE_ID:
+                raise ValueError("BLOB_STORE_ID is required when STORAGE_BACKEND=VERCEL_BLOB.")
+            if not self.has_blob_auth:
+                raise ValueError("BLOB_READ_WRITE_TOKEN is required when STORAGE_BACKEND=VERCEL_BLOB.")
         if self.APP_ENV != "development":
             self.DEBUG = False
             if self.JWT_SECRET_KEY == "replace-with-secure-secret":
@@ -103,6 +137,12 @@ class Settings(BaseSettings):
                 raise ValueError("DEVICE_API_KEY must be at least 32 characters outside development.")
             if self.CORS_ORIGINS and all(("localhost" in origin or "127.0.0.1" in origin) for origin in self.CORS_ORIGINS):
                 raise ValueError("CORS_ORIGINS must include a non-localhost origin outside development.")
+            if self.DATABASE_URL.startswith("sqlite"):
+                raise ValueError("SQLite DATABASE_URL is not allowed outside development.")
+            if self.is_vercel_runtime and self.STORAGE_BACKEND != "VERCEL_BLOB":
+                raise ValueError("STORAGE_BACKEND=VERCEL_BLOB is required on Vercel production runtime.")
+            if self.STORAGE_BACKEND == "VERCEL_BLOB" and self.RUN_MIGRATIONS_ON_START:
+                self.RUN_MIGRATIONS_ON_START = False
         return self
 
 

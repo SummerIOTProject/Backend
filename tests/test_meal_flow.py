@@ -1,6 +1,8 @@
 from pathlib import Path
 from datetime import timedelta
 
+import pytest
+
 from app.core.config import settings
 from app.models.meal_item_record import MealItemRecord
 from app.models.meal_record import MealRecord
@@ -83,6 +85,19 @@ def test_other_student_image_upload_forbidden(client, create_account, create_men
     assert response.json()["error"]["code"] == "FORBIDDEN_RESOURCE"
 
 
+def test_large_image_rejected_when_over_4mb(client, create_account, create_menu, create_meal, monkeypatch):
+    student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
+    record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
+    monkeypatch.setattr("app.utils.files.settings.MAX_IMAGE_SIZE_MB", 0)
+    response = client.post(
+        f"/api/v1/me/meal-records/{record['id']}/images/before",
+        headers=student["headers"],
+        files={"file": ("large.jpg", b"1234", "image/jpeg")},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "IMAGE_TOO_LARGE"
+
+
 def test_image_reupload_invalidates_previous_analysis(client, create_account, create_menu, create_meal, sample_image_file, sample_png_file, db_session_factory):
     student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
     record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
@@ -113,6 +128,152 @@ def test_image_reupload_invalidates_previous_analysis(client, create_account, cr
     finally:
         session.close()
     assert not old_before_file.exists()
+
+
+def test_blob_image_access_streaming_response(client, create_account, create_menu, create_meal, sample_image_file, monkeypatch):
+    class FakeBlobStorage:
+        def build_key(self, *, meal_record_id: int, image_type, filename: str) -> str:
+            return f"meal-images/{meal_record_id}/{image_type.value.lower()}/{filename}"
+
+        def save(self, *, key: str, content: bytes, content_type: str) -> str:
+            return key
+
+        def delete(self, key: str) -> None:
+            return None
+
+        def resolve_local_path(self, key: str):
+            return None
+
+        def read(self, key: str) -> bytes:
+            return b"blob-image"
+
+    fake_storage = FakeBlobStorage()
+    monkeypatch.setattr("app.services.image_service.build_image_storage", lambda: fake_storage)
+    student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
+    record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
+    uploaded = client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_image_file})
+    assert uploaded.status_code == 201
+    image_url = uploaded.json()["data"]["image_url"]
+    response = client.get(image_url, headers=student["headers"])
+    assert response.status_code == 200
+    assert response.content == b"blob-image"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_blob_upload_db_failure_cleans_new_blob(client, create_account, create_menu, create_meal, sample_image_file, monkeypatch):
+    class FakeBlobStorage:
+        def __init__(self):
+            self.saved = []
+            self.deleted = []
+
+        def build_key(self, *, meal_record_id: int, image_type, filename: str) -> str:
+            return f"meal-images/{meal_record_id}/{image_type.value.lower()}/{filename}"
+
+        def save(self, *, key: str, content: bytes, content_type: str) -> str:
+            self.saved.append(key)
+            return key
+
+        def delete(self, key: str) -> None:
+            self.deleted.append(key)
+
+        def resolve_local_path(self, key: str):
+            return None
+
+        def read(self, key: str) -> bytes:
+            return b"blob-image"
+
+    fake_storage = FakeBlobStorage()
+    monkeypatch.setattr("app.services.image_service.build_image_storage", lambda: fake_storage)
+    student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
+    record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
+
+    def fail_commit(self):
+        raise RuntimeError("db commit failed")
+
+    monkeypatch.setattr("sqlalchemy.orm.session.Session.commit", fail_commit)
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_image_file})
+    assert len(fake_storage.saved) == 1
+    assert fake_storage.deleted == fake_storage.saved
+
+
+def test_blob_reupload_deletes_old_blob_after_commit(client, create_account, create_menu, create_meal, sample_image_file, sample_png_file, monkeypatch):
+    class FakeBlobStorage:
+        def __init__(self):
+            self.saved = []
+            self.deleted = []
+            self._content = {}
+
+        def build_key(self, *, meal_record_id: int, image_type, filename: str) -> str:
+            return f"meal-images/{meal_record_id}/{image_type.value.lower()}/{filename}"
+
+        def save(self, *, key: str, content: bytes, content_type: str) -> str:
+            self.saved.append(key)
+            self._content[key] = content
+            return key
+
+        def delete(self, key: str) -> None:
+            self.deleted.append(key)
+            self._content.pop(key, None)
+
+        def resolve_local_path(self, key: str):
+            return None
+
+        def read(self, key: str) -> bytes:
+            return self._content[key]
+
+    fake_storage = FakeBlobStorage()
+    monkeypatch.setattr("app.services.image_service.build_image_storage", lambda: fake_storage)
+    student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
+    record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
+    first = client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_image_file})
+    second = client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_png_file})
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert len(fake_storage.saved) == 2
+    assert fake_storage.deleted == [fake_storage.saved[0]]
+
+
+def test_blob_delete_failure_logs_warning_but_does_not_fail_upload(client, create_account, create_menu, create_meal, sample_image_file, sample_png_file, monkeypatch):
+    class FakeBlobStorage:
+        backend_name = "VERCEL_BLOB"
+
+        def __init__(self):
+            self.saved = []
+            self.deleted = []
+
+        def build_key(self, *, meal_record_id: int, image_type, filename: str) -> str:
+            return f"meal-images/{meal_record_id}/{image_type.value.lower()}/{filename}"
+
+        def save(self, *, key: str, content: bytes, content_type: str) -> str:
+            self.saved.append(key)
+            return key
+
+        def delete(self, key: str) -> None:
+            self.deleted.append(key)
+            raise RuntimeError("delete failed")
+
+        def resolve_local_path(self, key: str):
+            return None
+
+        def read(self, key: str) -> bytes:
+            return b"x"
+
+    warnings = []
+
+    def fake_warning(message, *args, **kwargs):
+        warnings.append((message, args, kwargs))
+
+    fake_storage = FakeBlobStorage()
+    monkeypatch.setattr("app.services.image_service.build_image_storage", lambda: fake_storage)
+    monkeypatch.setattr("app.services.image_service.logger.warning", fake_warning)
+    student, meal, _ = _prepare_flow(client, create_account, create_menu, create_meal)
+    record = client.post("/api/v1/device/meal-records", headers={"X-Device-Key": "device-secret"}, json={"rfid_uid": "04A3B29C7F6180", "meal_id": meal["id"]}).json()["data"]
+    first = client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_image_file})
+    second = client.post(f"/api/v1/me/meal-records/{record['id']}/images/before", headers=student["headers"], files={"file": sample_png_file})
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert warnings
 
 
 def test_device_meal_record_rejects_yesterday_and_other_school(client, create_account, create_menu, create_meal):

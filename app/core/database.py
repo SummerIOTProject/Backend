@@ -14,6 +14,8 @@ class Base(DeclarativeBase):
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={"check_same_thread": False} if settings.is_sqlite else {},
+    pool_pre_ping=not settings.is_sqlite,
+    pool_recycle=300 if settings.is_postgresql else -1,
 )
 
 

@@ -106,6 +106,23 @@ def test_gemini_analysis_integration_saves_analysis_type(client, create_account,
         session.close()
 
 
+def test_analysis_reads_bytes_from_storage_backend(client, create_account, create_menu, create_meal, sample_image_file, monkeypatch):
+    captured = []
+
+    class FakeStorage:
+        def read(self, key: str) -> bytes:
+            return f"bytes:{key}".encode()
+
+    student, _, record = _prepare_record_for_analysis(client, create_account, create_menu, create_meal, sample_image_file)
+    monkeypatch.setattr("app.services.analysis_service.build_image_storage", lambda: FakeStorage())
+    monkeypatch.setattr("app.services.vision_service.build_vision_provider", lambda: DummyProvider(analysis_type=AnalysisType.MOCK, capture=captured))
+    response = client.post(f"/api/v1/me/meal-records/{record['id']}/analyze", headers=student["headers"])
+    assert response.status_code == 200
+    assert captured[0]["before_image"].startswith(b"bytes:")
+    assert captured[0]["after_image"].startswith(b"bytes:")
+    assert captured[0]["before_mime_type"] == "image/jpeg"
+
+
 def test_gemini_provider_receives_two_images_and_mime(monkeypatch):
     captured = []
     provider = GeminiVisionProvider.__new__(GeminiVisionProvider)

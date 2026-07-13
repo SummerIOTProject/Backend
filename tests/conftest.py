@@ -23,6 +23,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DEVICE_API_KEY", "device-secret")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
     monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
+    monkeypatch.setenv("STORAGE_BACKEND", "LOCAL")
     monkeypatch.setenv("VISION_ANALYSIS_MODE", "MOCK")
     monkeypatch.setenv("VISION_MAX_RETRIES", "2")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -34,6 +35,7 @@ def client(tmp_path, monkeypatch):
     settings.DEVICE_API_KEY = "device-secret"
     settings.JWT_SECRET_KEY = "test-secret"
     settings.UPLOAD_DIR = str(upload_dir)
+    settings.STORAGE_BACKEND = "LOCAL"
     settings.VISION_ANALYSIS_MODE = "MOCK"
     settings.VISION_MAX_RETRIES = 2
     settings.OPENAI_API_KEY = None
@@ -41,6 +43,9 @@ def client(tmp_path, monkeypatch):
     settings.VISION_MODEL = None
     settings.GEMINI_API_KEY = None
     settings.GEMINI_MODEL = None
+    settings.BLOB_STORE_ID = None
+    settings.BLOB_READ_WRITE_TOKEN = None
+    settings.VERCEL_OIDC_TOKEN = None
     settings.SCHOOL_NAME = "국민대학교"
     settings.APP_TIMEZONE = "Asia/Seoul"
 

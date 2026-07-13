@@ -46,6 +46,7 @@ DEBUG=true
 PORT=8000
 
 DATABASE_URL=sqlite:///./meal_service.db
+DATABASE_URL_UNPOOLED=
 SCHOOL_NAME=국민대학교
 APP_TIMEZONE=Asia/Seoul
 
@@ -67,10 +68,15 @@ VISION_ANALYSIS_MODE=MOCK
 VISION_TIMEOUT_SECONDS=60
 VISION_MAX_RETRIES=2
 
+STORAGE_BACKEND=LOCAL
+BLOB_STORE_ID=
+BLOB_READ_WRITE_TOKEN=
+VERCEL_OIDC_TOKEN=
+
 UPLOAD_DIR=uploads
-MAX_IMAGE_SIZE_MB=10
-ANALYSIS_IMAGE_MAX_DIMENSION=2048
-ANALYSIS_IMAGE_JPEG_QUALITY=85
+MAX_IMAGE_SIZE_MB=4
+ANALYSIS_IMAGE_MAX_DIMENSION=1600
+ANALYSIS_IMAGE_JPEG_QUALITY=80
 
 CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
 ```
@@ -84,6 +90,7 @@ CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
 
 - 최종 기준 DB 파일명: `meal_service.db`
 - Alembic URL: `sqlite:///./meal_service.db`
+- Alembic migration용 direct URL이 있으면 `DATABASE_URL_UNPOOLED`를 우선 사용합니다.
 - 서비스 기준 학교명: `SCHOOL_NAME=국민대학교`
 - 서비스 기준 시간대: `APP_TIMEZONE=Asia/Seoul`
 - 기존 개발 DB가 있으면 삭제 후 다시 생성하는 것을 권장합니다.
@@ -124,6 +131,28 @@ PostgreSQL 예시:
 ```env
 DATABASE_URL=postgresql+psycopg://user:password@host:5432/smart_meal
 ```
+
+Neon 운영 예시:
+
+```env
+APP_ENV=production
+DEBUG=false
+DATABASE_URL=postgresql+psycopg://pooled-user:password@host/db
+DATABASE_URL_UNPOOLED=postgresql+psycopg://direct-user:password@host/db
+STORAGE_BACKEND=VERCEL_BLOB
+BLOB_STORE_ID=...
+BLOB_READ_WRITE_TOKEN=...
+```
+
+Vercel은 `app/main.py`의 FastAPI app을 Function entrypoint로 사용합니다.
+
+- `pyproject.toml`: `app.main:app`
+- `vercel.json`: `app/main.py` max duration 설정
+- `Dockerfile`과 `start.sh`는 Vercel 배포에 사용되지 않습니다.
+- migration은 Vercel Function 시작 시 실행하지 않습니다.
+- Neon pooled URL은 애플리케이션 요청용입니다.
+- Neon direct URL은 migration용입니다.
+- Preview와 Production DB는 분리하는 것을 권장합니다.
 
 영구 저장소가 없는 환경에서는 SQLite DB 파일과 업로드 이미지가 컨테이너 재시작 시 사라질 수 있습니다.
 
@@ -291,6 +320,13 @@ curl -X POST http://127.0.0.1:8000/api/v1/me/meal-records/1/images/after \
 - EXIF 방향 보정
 - 긴 변 리사이즈
 - UUID 파일명
+- 최대 4MB
+
+Vercel 환경에서는 요청 본문 제한 때문에 원본 이미지가 4MB를 넘으면 애플리케이션 도달 전 거부될 수 있습니다.
+
+- 프론트엔드에서 업로드 전에 긴 변 1600px 이하로 압축해야 합니다.
+- 업로드 전에 4MB 이하인지 확인해야 합니다.
+- Vercel 요청/응답 크기 제한을 고려해 저장 단계에서 4MB 이하를 유지합니다.
 
 식전 또는 식후 이미지를 다시 업로드하면 기존 분석 결과는 무효화됩니다.
 
@@ -306,6 +342,27 @@ curl -X POST http://127.0.0.1:8000/api/v1/me/meal-records/1/images/after \
 - BEFORE만 있음: `BEFORE_IMAGE_UPLOADED`
 - AFTER만 있음: `CREATED`
 - 둘 다 없음: `CREATED`
+
+## Private Vercel Blob
+
+- 공식 Python 패키지는 `vercel`입니다.
+- 공식 Blob API는 `vercel.blob.BlobClient`를 사용합니다.
+- `STORAGE_BACKEND=VERCEL_BLOB`일 때 Private Blob을 사용합니다.
+- Private Blob은 읽기와 쓰기 모두 인증이 필요합니다.
+- 현재 구현에서는 Vercel 환경이어도 `BLOB_READ_WRITE_TOKEN`이 필수입니다.
+- `VERCEL_OIDC_TOKEN`은 일반 Blob token처럼 직접 전달하지 않습니다.
+- 공식 OIDC 인증 경로는 향후 별도 검증 후 적용해야 합니다.
+- DB에는 공개 URL 대신 storage key를 저장합니다.
+- 이미지 조회는 API 서버가 권한을 확인한 뒤 image bytes를 반환합니다.
+- Private Blob `get`에는 `access=\"private\"`를 명시합니다.
+- `exists`는 `head`를 사용하고, `read`는 `get`, `delete`는 `delete`를 사용합니다.
+- 없는 파일과 인증·서비스 오류를 구분합니다.
+- Blob SDK 호출 실패 시 LOCAL 저장소로 자동 fallback하지 않습니다.
+- readiness의 `storage=UP`은 설정이 유효하다는 의미이며, 실제 Blob 네트워크 연결을 매 요청 검증하지는 않습니다.
+- 실제 Blob 동작은 배포 후 업로드, 조회, 재업로드 흐름으로 확인해야 합니다.
+- Blob 토큰, Blob URL, 내부 저장 경로는 응답에 노출하지 않습니다.
+- GitHub push 후 Vercel이 연결돼 있으면 자동 배포가 실행될 수 있습니다.
+- 비밀키와 DB URL, Blob 토큰은 Git에 커밋하면 안 됩니다.
 
 ## 이미지 접근 권한
 

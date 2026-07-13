@@ -1,12 +1,10 @@
-from pathlib import Path
-
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.exceptions import AppException, BadRequestException, ConflictException, ForbiddenException
 from app.repositories.meal_image_repository import MealImageRepository
 from app.repositories.meal_item_record_repository import MealItemRecordRepository
 from app.repositories.meal_record_repository import MealRecordRepository
+from app.services.storage.factory import build_image_storage
 from app.services.vision_service import VisionService
 from app.utils.datetime import get_current_utc_datetime
 from app.utils.enums import ConsumptionLevel, ImageType, MealRecordStatus
@@ -19,6 +17,7 @@ class AnalysisService:
         self.image_repository = MealImageRepository(db)
         self.meal_item_record_repository = MealItemRecordRepository(db)
         self.vision_service = VisionService()
+        self.storage = build_image_storage()
 
     async def analyze(self, meal_record_id: int, *, user_id: int | None = None, allow_completed: bool = False):
         record = self.meal_record_repository.get_by_id(meal_record_id)
@@ -65,9 +64,9 @@ class AnalysisService:
                 for item in record.meal.meal_menu_items
             ]
             analysis_type, result = await self.vision_service.analyze(
-                before_image=Path(settings.UPLOAD_DIR, before_image.image_url).read_bytes(),
+                before_image=self.storage.read(before_image.image_url),
                 before_mime_type=before_image.mime_type,
-                after_image=Path(settings.UPLOAD_DIR, after_image.image_url).read_bytes(),
+                after_image=self.storage.read(after_image.image_url),
                 after_mime_type=after_image.mime_type,
                 menu_items=menu_items,
             )

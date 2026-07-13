@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.exceptions import AppException
-from app.core.runtime import ensure_upload_storage_ready
+from app.core.exceptions import AppException, ServerException
+from app.core.runtime import ensure_upload_storage_ready, validate_storage_configuration
 from app.core.database import get_db
 from app.models import *  # noqa: F401,F403
 from app.schemas.common import ErrorDetailSchema, ErrorResponse, HealthResponse, HealthStatusData
@@ -44,7 +44,7 @@ def liveness_check():
 def health_check(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
-        ensure_upload_storage_ready()
+        validate_storage_configuration()
     except SQLAlchemyError:
         return JSONResponse(
             status_code=503,
@@ -54,7 +54,7 @@ def health_check(db: Session = Depends(get_db)):
                 error=ErrorDetailSchema(code="DATABASE_UNAVAILABLE", detail=None),
             ).model_dump(),
         )
-    except RuntimeError:
+    except (RuntimeError, ServerException):
         return JSONResponse(
             status_code=503,
             content=ErrorResponse(

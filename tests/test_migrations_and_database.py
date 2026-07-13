@@ -44,6 +44,24 @@ def test_alembic_upgrade_head_seeds_allergens(tmp_path, monkeypatch):
         assert "SULFITE" not in codes
 
 
+def test_alembic_uses_database_url_unpooled_when_present(tmp_path, monkeypatch):
+    pooled = tmp_path / "pooled.db"
+    direct = tmp_path / "direct.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{pooled}")
+    monkeypatch.setenv("DATABASE_URL_UNPOOLED", f"sqlite:///{direct}")
+    monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{pooled}")
+    monkeypatch.setattr(settings, "DATABASE_URL_UNPOOLED", f"sqlite:///{direct}")
+
+    config = Config(str(Path("alembic.ini").resolve()))
+    command.upgrade(config, "head")
+
+    direct_engine = create_engine(f"sqlite:///{direct}", connect_args={"check_same_thread": False})
+    direct_tables = set(inspect(direct_engine).get_table_names())
+    assert "users" in direct_tables
+    assert direct.exists()
+    assert not pooled.exists()
+
+
 def test_sqlite_foreign_keys_and_constraints(db_session_factory):
     session = db_session_factory()
     try:
