@@ -23,7 +23,6 @@ def upload_my_before_image(
 ):
     record_service.assert_owner(meal_record_id, current_user.id)
     image = image_service.upload_image(meal_record_id, ImageType.BEFORE, file)
-    record_service.mark_before_uploaded(meal_record_id)
     return CommonResponse(message="식전 이미지가 업로드되었습니다.", data=MealImageUploadResponse(image_id=image.id, image_url=f"/api/v1/me/meal-images/{image.id}"))
 
 
@@ -37,7 +36,6 @@ def upload_my_after_image(
 ):
     record_service.assert_owner(meal_record_id, current_user.id)
     image = image_service.upload_image(meal_record_id, ImageType.AFTER, file)
-    record_service.mark_images_uploaded(meal_record_id)
     return CommonResponse(message="식후 이미지가 업로드되었습니다.", data=MealImageUploadResponse(image_id=image.id, image_url=f"/api/v1/me/meal-images/{image.id}"))
 
 

@@ -51,7 +51,15 @@ class MealItemRecordRepository:
         )
         return self.db.scalars(stmt).unique().one_or_none()
 
-    def list_recent_same_menu_records(self, *, user_id: int, menu_id: int, start_date: date, end_date: date) -> list[MealItemRecord]:
+    def list_recent_same_menu_records(
+        self,
+        *,
+        user_id: int,
+        menu_id: int,
+        start_date: date,
+        end_date: date,
+        exclude_meal_id: int | None = None,
+    ) -> list[MealItemRecord]:
         stmt = (
             select(MealItemRecord)
             .join(MealRecord, MealRecord.id == MealItemRecord.meal_record_id)
@@ -67,6 +75,8 @@ class MealItemRecordRepository:
             )
             .order_by(Meal.meal_date.desc(), MealItemRecord.id.desc())
         )
+        if exclude_meal_id is not None:
+            stmt = stmt.where(MealRecord.meal_id != exclude_meal_id)
         return list(self.db.scalars(stmt).all())
 
     def delete_by_record(self, meal_record_id: int) -> None:

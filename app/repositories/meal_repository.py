@@ -8,7 +8,7 @@ from app.models.meal_menu_item import MealMenuItem
 from app.models.menu import Menu
 from app.models.menu_allergen import MenuAllergen
 from app.models.menu_ingredient import MenuIngredient
-from app.utils.datetime import today_local
+from app.utils.datetime import get_current_date
 from app.utils.enums import MealType
 
 
@@ -38,12 +38,17 @@ class MealRepository:
         stmt = self._query().where(Meal.id == meal_id)
         return self.db.scalars(stmt).unique().one_or_none()
 
-    def get_today(self, target_date: date | None = None) -> list[Meal]:
-        stmt = self._query().where(Meal.meal_date == (target_date or today_local())).order_by(Meal.meal_type.asc())
+    def get_today(self, *, target_date: date | None = None, school_name: str | None = None) -> list[Meal]:
+        stmt = self._query().where(Meal.meal_date == (target_date or get_current_date()))
+        if school_name is not None:
+            stmt = stmt.where(Meal.school_name == school_name)
+        stmt = stmt.order_by(Meal.meal_type.asc())
         return list(self.db.scalars(stmt).unique().all())
 
-    def get_today_meal_by_type(self, meal_type: MealType, target_date: date | None = None) -> Meal | None:
-        stmt = self._query().where(Meal.meal_date == (target_date or today_local()), Meal.meal_type == meal_type)
+    def get_today_meal_by_type(self, meal_type: MealType, *, target_date: date | None = None, school_name: str | None = None) -> Meal | None:
+        stmt = self._query().where(Meal.meal_date == (target_date or get_current_date()), Meal.meal_type == meal_type)
+        if school_name is not None:
+            stmt = stmt.where(Meal.school_name == school_name)
         return self.db.scalars(stmt).unique().one_or_none()
 
     def get_by_unique_fields(self, *, meal_date: date, meal_type: MealType, school_name: str) -> Meal | None:

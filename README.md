@@ -43,8 +43,11 @@ cp .env.example .env
 APP_NAME=smart-meal-api
 APP_ENV=development
 DEBUG=true
+PORT=8000
 
 DATABASE_URL=sqlite:///./meal_service.db
+SCHOOL_NAME=국민대학교
+APP_TIMEZONE=Asia/Seoul
 
 JWT_SECRET_KEY=replace-with-secure-secret
 JWT_ALGORITHM=HS256
@@ -52,9 +55,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=14
 
 DEVICE_API_KEY=replace-with-device-key
+RUN_MIGRATIONS_ON_START=true
 
 OPENAI_API_KEY=
-VISION_MODEL=gpt-4o-mini
+OPENAI_MODEL=
+
+GEMINI_API_KEY=
+GEMINI_MODEL=
+
 VISION_ANALYSIS_MODE=MOCK
 VISION_TIMEOUT_SECONDS=60
 VISION_MAX_RETRIES=2
@@ -68,6 +76,7 @@ CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
 ```
 
 운영 환경에서는 `JWT_SECRET_KEY=replace-with-secure-secret`, `DEVICE_API_KEY=replace-with-device-key` 상태로 시작할 수 없습니다.
+실제 비밀키와 API Key는 Git에 커밋하지 마세요.
 
 ## DB와 Migration
 
@@ -75,6 +84,8 @@ CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
 
 - 최종 기준 DB 파일명: `meal_service.db`
 - Alembic URL: `sqlite:///./meal_service.db`
+- 서비스 기준 학교명: `SCHOOL_NAME=국민대학교`
+- 서비스 기준 시간대: `APP_TIMEZONE=Asia/Seoul`
 - 기존 개발 DB가 있으면 삭제 후 다시 생성하는 것을 권장합니다.
 
 ```bash
@@ -83,6 +94,48 @@ alembic upgrade head
 ```
 
 기존 `EGG` 코드는 `EGGS`, `SULFITE` 코드는 `SULFITES`로 정규화됩니다.
+
+## Docker 및 실행 준비
+
+Docker 이미지는 `.env`를 포함하지 않습니다.
+
+- `.env`를 이미지에 복사하지 않습니다.
+- 환경변수는 컨테이너 실행 환경에서 주입해야 합니다.
+- `start.sh`는 기본적으로 migration 실행 후 Uvicorn을 시작합니다.
+- `RUN_MIGRATIONS_ON_START=false`이면 migration 없이 서버만 시작합니다.
+- 서버 포트는 `PORT` 환경변수를 사용합니다.
+
+SQLite 개발 예시:
+
+```env
+DATABASE_URL=sqlite:///./meal_service.db
+UPLOAD_DIR=uploads
+```
+
+영구 볼륨 예시:
+
+```env
+DATABASE_URL=sqlite:////data/meal_service.db
+UPLOAD_DIR=/data/uploads
+```
+
+PostgreSQL 예시:
+
+```env
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/smart_meal
+```
+
+영구 저장소가 없는 환경에서는 SQLite DB 파일과 업로드 이미지가 컨테이너 재시작 시 사라질 수 있습니다.
+
+컨테이너 내부에서도 관리자 생성 스크립트를 사용할 수 있습니다.
+
+```bash
+python scripts/create_admin.py \
+  --login-id admin1 \
+  --name 관리자 \
+  --student-number ADMIN001 \
+  --password AdminPassword123!
+```
 
 ## 관리자 생성
 
@@ -160,6 +213,12 @@ UID는 전체 unique이며, 비활성 카드는 스캔되지 않습니다.
 
 ## RFID scan + meal_type
 
+장치 스캔과 식사 기록 생성은 다음 기준을 함께 검증합니다.
+
+- 오늘 날짜는 `APP_TIMEZONE` 기준으로 계산합니다.
+- 급식은 `meal_date + meal_type + SCHOOL_NAME`으로 조회합니다.
+- 비활성 RFID 카드와 비활성 사용자 계정은 거부합니다.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/device/rfid/scan \
   -H "X-Device-Key: replace-with-device-key" \
@@ -233,12 +292,28 @@ curl -X POST http://127.0.0.1:8000/api/v1/me/meal-records/1/images/after \
 - 긴 변 리사이즈
 - UUID 파일명
 
+식전 또는 식후 이미지를 다시 업로드하면 기존 분석 결과는 무효화됩니다.
+
+- 기존 `meal_item_records` 삭제
+- `completed_at` 초기화
+- `failure_reason` 초기화
+- 추천 캐시 삭제
+- 실제 DB에 존재하는 BEFORE/AFTER 이미지 기준으로 상태 재계산
+
+현재 상태 정책:
+
+- BEFORE + AFTER 있음: `IMAGES_UPLOADED`
+- BEFORE만 있음: `BEFORE_IMAGE_UPLOADED`
+- AFTER만 있음: `CREATED`
+- 둘 다 없음: `CREATED`
+
 ## 이미지 접근 권한
 
 이미지 정적 공개를 사용하지 않습니다.
 
 - `GET /api/v1/me/meal-images/{image_id}`
 - 본인 기록 또는 관리자만 조회 가능
+- DB 행은 있어도 실제 파일이 없으면 `IMAGE_FILE_NOT_FOUND`를 반환합니다.
 
 개인정보 제한사항:
 
@@ -249,7 +324,6 @@ curl -X POST http://127.0.0.1:8000/api/v1/me/meal-records/1/images/after \
 
 ```env
 VISION_ANALYSIS_MODE=MOCK
-VISION_MODEL=gpt-4o-mini
 ```
 
 ```bash
@@ -257,17 +331,49 @@ curl -X POST http://127.0.0.1:8000/api/v1/me/meal-records/1/analyze \
   -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
+## GEMINI_VLM
+
+```env
+VISION_ANALYSIS_MODE=GEMINI_VLM
+GEMINI_API_KEY=your-gemini-key
+GEMINI_MODEL=gemini-2.5-flash
+VISION_TIMEOUT_SECONDS=60
+VISION_MAX_RETRIES=2
+```
+
+- Gemini API Key 발급이 필요합니다.
+- 이미지 입력 지원 모델명은 Google AI Studio 문서를 확인해 설정하세요.
+- 무료 티어에는 요청 한도가 있을 수 있습니다.
+- 무료 티어 제공 모델과 한도는 변경될 수 있습니다.
+- 무료 사용을 코드가 보장하지 않습니다.
+- `VISION_TIMEOUT_SECONDS`는 Gemini 요청 1회당 제한 시간입니다.
+- `VISION_MAX_RETRIES`는 최초 요청 이후 추가 재시도 횟수입니다.
+- timeout, 연결 오류, 일부 5xx와 quota/rate limit 계열 오류는 제한 횟수 안에서 재시도합니다.
+- 잘못된 API Key, 권한 오류, 요청 형식 오류는 재시도하지 않습니다.
+- 한도 소진 시 `VISION_QUOTA_EXCEEDED` 오류가 발생할 수 있습니다.
+- Gemini 실패 시 MOCK으로 자동 대체하지 않습니다.
+- 학생 식별정보는 Gemini로 보내지 않습니다.
+- 급식판만 촬영하고 얼굴, 학번, RFID 카드가 사진에 나오지 않도록 안내해야 합니다.
+
 ## OPENAI_VLM
 
 ```env
-OPENAI_API_KEY=sk-...
 VISION_ANALYSIS_MODE=OPENAI_VLM
-VISION_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your-openai-key
+OPENAI_MODEL=gpt-4o-mini
 VISION_TIMEOUT_SECONDS=60
 VISION_MAX_RETRIES=2
 ```
 
 분석 요청 body는 사용하지 않습니다. 서버 실행 모드는 `VISION_ANALYSIS_MODE`가 결정합니다.
+기존 `VISION_MODEL`은 하위 호환용으로만 남아 있으며, 새 설정에서는 `OPENAI_MODEL` 사용을 권장합니다.
+
+## Health Check
+
+- `GET /health/live`: 프로세스 liveness 확인
+- `GET /health` 또는 `GET /health/ready`: DB `SELECT 1`과 업로드 저장소 쓰기 가능 여부 확인
+
+`/health`는 내부 경로나 `DATABASE_URL` 원문을 노출하지 않습니다.
 
 ## 분석 실패와 재분석 정책
 
@@ -289,6 +395,10 @@ VISION_MAX_RETRIES=2
 - 3일 전
 - 4일 전
 
+계산식:
+
+- `start_date = today - timedelta(days=days - 1)`
+
 ## 섭취율 보정과 confidence 의미
 
 - `consumed_ratio`: 현재 적용되는 최종 값
@@ -306,6 +416,7 @@ VISION_MAX_RETRIES=2
 ## 배식량 추천
 
 - 기준: 최근 5일, 동일 `menu_id`, 완료된 기록만 사용
+- 현재 추천 대상 `meal_id`의 분석 결과는 평균에서 제외
 - `sample_count=0`: 이전 섭취 기록이 없어 기준 제공량 추천
 - `sample_count=1`: 최근 데이터가 1건뿐이므로 참고용 추천
 - `sample_count>=2`: 최근 5일 평균 섭취율 표시
@@ -326,6 +437,12 @@ VISION_MAX_RETRIES=2
 python -m compileall app scripts
 alembic upgrade head
 pytest -q
+```
+
+Docker 준비 상태를 확인할 때는 필요하면 다음을 실행할 수 있습니다.
+
+```bash
+DATABASE_URL=sqlite:///./deployment_test.db alembic upgrade head
 ```
 
 ```bash

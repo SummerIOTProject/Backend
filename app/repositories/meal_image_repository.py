@@ -18,6 +18,9 @@ class MealImageRepository:
         stmt = select(MealImage).where(MealImage.meal_record_id == meal_record_id).order_by(MealImage.id.asc())
         return list(self.db.scalars(stmt).all())
 
+    def has_image_type(self, meal_record_id: int, image_type: ImageType) -> bool:
+        return self.get_by_record_and_type(meal_record_id, image_type) is not None
+
     def get_by_id(self, image_id: int) -> MealImage | None:
         stmt = select(MealImage).options(joinedload(MealImage.meal_record)).where(MealImage.id == image_id)
         return self.db.scalar(stmt)

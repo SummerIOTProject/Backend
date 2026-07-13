@@ -6,6 +6,7 @@ from app.models.menu_ingredient import MenuIngredient
 from app.repositories.allergen_repository import AllergenRepository
 from app.repositories.menu_repository import MenuRepository
 from app.schemas.menu import MenuCreateRequest, MenuUpdateRequest
+from app.utils.normalization import normalize_allergen_codes, normalize_ingredient_names
 
 
 class MenuService:
@@ -17,6 +18,8 @@ class MenuService:
     def create_menu(self, request: MenuCreateRequest):
         if self.menu_repository.get_by_name(request.name):
             raise ConflictException(message="이미 등록된 메뉴입니다.", code="DUPLICATE_MENU_NAME", detail=request.name)
+        normalized_ingredients = normalize_ingredient_names(request.ingredients)
+        normalized_allergen_codes = normalize_allergen_codes(request.allergen_codes)
         try:
             menu = self.menu_repository.create(
                 name=request.name,
@@ -27,7 +30,7 @@ class MenuService:
                 fat_per_100g=request.nutrition_per_100g.fat_g,
                 is_active=True,
             )
-            self._replace_links(menu, request.ingredients, request.allergen_codes)
+            self._replace_links(menu, normalized_ingredients, normalized_allergen_codes)
             self.db.commit()
             return self.get_menu(menu.id)
         except Exception:
@@ -63,6 +66,9 @@ class MenuService:
         menu = self.get_menu(menu_id)
         payload = {}
         if request.name is not None:
+            duplicate = self.menu_repository.get_by_name(request.name)
+            if duplicate and duplicate.id != menu_id:
+                raise ConflictException(message="이미 등록된 메뉴입니다.", code="DUPLICATE_MENU_NAME", detail=request.name)
             payload["name"] = request.name
         if request.standard_serving_g is not None:
             payload["standard_serving_g"] = request.standard_serving_g
@@ -77,7 +83,9 @@ class MenuService:
             )
         try:
             self.menu_repository.update(menu, **payload)
-            self._replace_links(menu, request.ingredients, request.allergen_codes)
+            normalized_ingredients = normalize_ingredient_names(request.ingredients) if request.ingredients is not None else None
+            normalized_allergen_codes = normalize_allergen_codes(request.allergen_codes) if request.allergen_codes is not None else None
+            self._replace_links(menu, normalized_ingredients, normalized_allergen_codes)
             self.db.commit()
             return self.get_menu(menu.id)
         except Exception:

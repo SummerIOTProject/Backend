@@ -16,6 +16,9 @@ class RecommendationRepository:
         self.db.flush()
         return items
 
+    def delete_by_user_and_meal(self, *, user_id: int, meal_id: int) -> None:
+        self.db.execute(delete(ServingRecommendation).where(ServingRecommendation.user_id == user_id, ServingRecommendation.meal_id == meal_id))
+
     def list_by_user_and_meal(self, *, user_id: int, meal_id: int) -> list[ServingRecommendation]:
         stmt = (
             select(ServingRecommendation)

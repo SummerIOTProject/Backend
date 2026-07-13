@@ -18,8 +18,9 @@ class AdminDashboardResponse(BaseModel):
     meal_record_count: int
     completed_analysis_count: int
     failed_analysis_count: int
-    average_consumed_ratio: float
-    average_leftover_ratio: float
+    analysis_sample_count: int
+    average_consumed_ratio: float | None
+    average_leftover_ratio: float | None
 
 
 class LeftoverSummaryItemResponse(BaseModel):
@@ -28,5 +29,5 @@ class LeftoverSummaryItemResponse(BaseModel):
     menu_id: int
     menu_name: str
     analysis_count: int
-    average_consumed_ratio: float
-    average_leftover_ratio: float
+    average_consumed_ratio: float | None
+    average_leftover_ratio: float | None

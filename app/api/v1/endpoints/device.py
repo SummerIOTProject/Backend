@@ -22,7 +22,7 @@ def scan_rfid(
     meal_service: MealService = Depends(get_meal_service),
     recommendation_service: RecommendationService = Depends(get_recommendation_service),
 ):
-    card = rfid_service.get_active_card_by_uid(request.uid)
+    card = rfid_service.get_scan_ready_card_by_uid(request.uid)
     meal = meal_service.get_today_meal_by_type(request.meal_type)
     guidance = []
     recommendations = recommendation_service.generate_for_meal(user_id=card.user_id, meal_id=meal.id)

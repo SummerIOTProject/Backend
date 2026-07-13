@@ -1,50 +1,26 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.v1.router import api_router
-from app.core.allergen_seed import ALLERGEN_SEEDS
 from app.core.config import settings
-from app.core.database import Base, SessionLocal, engine
 from app.core.exceptions import AppException
-from app.models.allergen import Allergen
+from app.core.runtime import ensure_upload_storage_ready
+from app.core.database import get_db
 from app.models import *  # noqa: F401,F403
-from app.schemas.common import ErrorDetailSchema, ErrorResponse, HealthResponse
+from app.schemas.common import ErrorDetailSchema, ErrorResponse, HealthResponse, HealthStatusData
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-    seed_allergens(SessionLocal())
+    ensure_upload_storage_ready()
     yield
-
-
-def seed_allergens(db: Session) -> None:
-    try:
-        existing = {item.code: item for item in db.query(Allergen).all()}
-        legacy_map = {"EGG": "EGGS", "SULFITE": "SULFITES"}
-        for old_code, new_code in legacy_map.items():
-            if old_code in existing and new_code not in existing:
-                existing[old_code].code = new_code
-        db.flush()
-        existing = {item.code: item for item in db.query(Allergen).all()}
-        for code, name_ko, display_number in ALLERGEN_SEEDS:
-            allergen = existing.get(code)
-            if allergen:
-                allergen.name_ko = name_ko
-                allergen.display_number = display_number
-                allergen.is_active = True
-            else:
-                db.add(Allergen(code=code, name_ko=name_ko, display_number=display_number, is_active=True))
-        db.commit()
-    finally:
-        db.close()
 
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG, lifespan=lifespan)
@@ -58,9 +34,39 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.get("/health/live", response_model=HealthResponse, tags=["Health"])
+def liveness_check():
+    return HealthResponse(message="서버 프로세스가 정상 작동 중입니다.", data=HealthStatusData(status="UP"))
+
+
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-def health_check():
-    return HealthResponse(status="ok")
+@app.get("/health/ready", response_model=HealthResponse, tags=["Health"])
+def health_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        ensure_upload_storage_ready()
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                success=False,
+                message="데이터베이스에 연결할 수 없습니다.",
+                error=ErrorDetailSchema(code="DATABASE_UNAVAILABLE", detail=None),
+            ).model_dump(),
+        )
+    except RuntimeError:
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                success=False,
+                message="업로드 저장소를 사용할 수 없습니다.",
+                error=ErrorDetailSchema(code="STORAGE_UNAVAILABLE", detail=None),
+            ).model_dump(),
+        )
+    return HealthResponse(
+        message="서버가 정상 작동 중입니다.",
+        data=HealthStatusData(status="UP", database="UP", storage="UP"),
+    )
 
 
 @app.exception_handler(AppException)

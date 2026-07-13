@@ -24,6 +24,7 @@ from app.schemas.auth import (
     SignUpRequest,
     TokenPairResponse,
 )
+from app.utils.normalization import normalize_allergen_codes
 from app.utils.enums import UserRole
 
 
@@ -42,23 +43,28 @@ class AuthService:
                 message="이미 사용 중인 학번입니다.",
                 code="DUPLICATE_STUDENT_NUMBER",
                 detail=request.student_number,
-            )
-        validate_password_format(request.password)
-        allergens = self.allergen_repository.get_by_codes(request.allergen_codes)
-        if len(allergens) != len(set(request.allergen_codes)):
-            raise BadRequestException(message="유효하지 않은 알레르기 코드가 있습니다.", code="INVALID_ALLERGEN_CODE", detail="allergen")
-        user = self.user_repository.create(
-            login_id=request.login_id,
-            hashed_password=hash_password(request.password),
-            name=request.name,
-            student_number=request.student_number,
-            role=UserRole.STUDENT,
-            is_active=True,
         )
-        self.allergen_repository.replace_user_allergies(user.id, [item.id for item in allergens])
-        self.db.commit()
-        self.db.refresh(user)
-        return user
+        validate_password_format(request.password)
+        allergen_codes = normalize_allergen_codes(request.allergen_codes)
+        allergens = self.allergen_repository.get_by_codes(allergen_codes)
+        if len(allergens) != len(allergen_codes):
+            raise BadRequestException(message="유효하지 않은 알레르기 코드가 있습니다.", code="INVALID_ALLERGEN_CODE", detail="allergen")
+        try:
+            user = self.user_repository.create(
+                login_id=request.login_id,
+                hashed_password=hash_password(request.password),
+                name=request.name,
+                student_number=request.student_number,
+                role=UserRole.STUDENT,
+                is_active=True,
+            )
+            self.allergen_repository.replace_user_allergies(user.id, [item.id for item in allergens])
+            self.db.commit()
+            self.db.refresh(user)
+            return user
+        except Exception:
+            self.db.rollback()
+            raise
 
     def login(self, request: LoginRequest) -> TokenPairResponse:
         user = self.user_repository.get_by_login_id(request.login_id)

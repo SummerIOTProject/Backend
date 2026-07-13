@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
+from app.core.exceptions import BadRequestException, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException
 from app.repositories.rfid_repository import RfidRepository
 from app.repositories.user_repository import UserRepository
 
@@ -23,6 +23,16 @@ class RfidService:
         card = self.rfid_repository.get_active_by_uid(uid)
         if not card:
             raise NotFoundException(message="RFID 카드를 찾을 수 없습니다.", code="RFID_NOT_FOUND", detail=uid)
+        return card
+
+    def get_scan_ready_card_by_uid(self, uid: str):
+        card = self.rfid_repository.get_by_uid(uid)
+        if not card:
+            raise NotFoundException(message="RFID 카드를 찾을 수 없습니다.", code="RFID_NOT_FOUND", detail=uid)
+        if not card.is_active:
+            raise BadRequestException(message="비활성 RFID 카드입니다.", code="INACTIVE_RFID_CARD", detail=uid)
+        if not card.user.is_active:
+            raise UnauthorizedException(message="비활성화된 계정입니다.", code="INACTIVE_USER", detail=f"user_id={card.user_id}")
         return card
 
     def list_my_cards(self, user_id: int):

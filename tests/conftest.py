@@ -11,8 +11,7 @@ from app.core.allergen_seed import ALLERGEN_SEEDS
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.main import app
-from app.models import Allergen, Meal, MealItemRecord, MealMenuItem, MealRecord, Menu, RFIDCard, User
-from app.models.user import User
+from app.models import Allergen, Meal, MealItemRecord, MealMenuItem, MealRecord, Menu, User
 from app.utils.datetime import today_local
 from app.utils.enums import UserRole
 
@@ -26,11 +25,24 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(upload_dir))
     monkeypatch.setenv("VISION_ANALYSIS_MODE", "MOCK")
     monkeypatch.setenv("VISION_MAX_RETRIES", "2")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.setenv("SCHOOL_NAME", "국민대학교")
+    monkeypatch.setenv("APP_TIMEZONE", "Asia/Seoul")
     settings.DEVICE_API_KEY = "device-secret"
     settings.JWT_SECRET_KEY = "test-secret"
     settings.UPLOAD_DIR = str(upload_dir)
     settings.VISION_ANALYSIS_MODE = "MOCK"
     settings.VISION_MAX_RETRIES = 2
+    settings.OPENAI_API_KEY = None
+    settings.OPENAI_MODEL = None
+    settings.VISION_MODEL = None
+    settings.GEMINI_API_KEY = None
+    settings.GEMINI_MODEL = None
+    settings.SCHOOL_NAME = "국민대학교"
+    settings.APP_TIMEZONE = "Asia/Seoul"
 
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)

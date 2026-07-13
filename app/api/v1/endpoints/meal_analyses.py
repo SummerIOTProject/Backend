@@ -18,13 +18,13 @@ async def analyze_my_meal_record(
     service: AnalysisService = Depends(get_analysis_service),
     nutrition_service: NutritionService = Depends(get_nutrition_service),
 ):
-    item_records, analysis_type = await service.analyze(meal_record_id, user_id=current_user.id)
+    item_records, analysis_type, analysis_note = await service.analyze(meal_record_id, user_id=current_user.id)
     return CommonResponse(
         message="식사 분석이 완료되었습니다.",
         data=MealAnalysisResponse(
             meal_record_id=meal_record_id,
             analysis_type=analysis_type,
-            analysis_note="메뉴별 섭취율 분석 결과입니다.",
+            analysis_note=analysis_note,
             items=[to_meal_item_record_response(item, nutrition_service) for item in item_records],
         ),
     )
@@ -37,13 +37,13 @@ async def reanalyze_my_meal_record(
     service: AnalysisService = Depends(get_analysis_service),
     nutrition_service: NutritionService = Depends(get_nutrition_service),
 ):
-    item_records, analysis_type = await service.reanalyze(meal_record_id, user_id=current_user.id)
+    item_records, analysis_type, analysis_note = await service.reanalyze(meal_record_id, user_id=current_user.id)
     return CommonResponse(
         message="식사 재분석이 완료되었습니다.",
         data=MealAnalysisResponse(
             meal_record_id=meal_record_id,
             analysis_type=analysis_type,
-            analysis_note="메뉴별 섭취율 재분석 결과입니다.",
+            analysis_note=analysis_note,
             items=[to_meal_item_record_response(item, nutrition_service) for item in item_records],
         ),
     )

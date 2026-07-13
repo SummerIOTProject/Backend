@@ -64,8 +64,8 @@ def test_recommendation_reflects_corrected_ratio_and_sample_count(client, create
     client.patch(f"/api/v1/me/meal-item-records/{item_id}/consumed-ratio", headers=student["headers"], json={"consumed_ratio": 0.2})
     response = client.get(f"/api/v1/me/recommendations?meal_id={meal['id']}", headers=student["headers"])
     assert response.status_code == 200
-    assert response.json()["data"]["items"][0]["recommendation_level"] == "LESS"
-    assert response.json()["data"]["items"][0]["sample_count"] == 1
+    assert response.json()["data"]["items"][0]["recommendation_level"] == "NORMAL"
+    assert response.json()["data"]["items"][0]["sample_count"] == 0
 
 
 def test_reanalyze_blocked_when_corrected(client, create_account, create_menu, create_meal, sample_image_file):
@@ -74,3 +74,43 @@ def test_reanalyze_blocked_when_corrected(client, create_account, create_menu, c
     client.patch(f"/api/v1/me/meal-item-records/{item_id}/consumed-ratio", headers=student["headers"], json={"consumed_ratio": 0.3})
     response = client.post(f"/api/v1/me/meal-records/{record['id']}/reanalyze", headers=student["headers"])
     assert response.status_code == 409
+
+
+def test_recommendation_excludes_target_meal_from_recent_average(client, create_account, create_menu, create_meal, make_completed_record, db_session_factory):
+    admin = create_account(login_id="admin1", student_number="90000001", role="ADMIN")
+    student = create_account(login_id="student1", student_number="20223137")
+    menu = create_menu(admin["headers"], name="제육볶음")
+    target_meal = create_meal(admin["headers"], [menu["id"]])
+    make_completed_record(user_id=student["user_id"], menu_id=menu["id"], days_ago=1, consumed_ratio=0.2)
+    make_completed_record(user_id=student["user_id"], menu_id=menu["id"], days_ago=2, consumed_ratio=0.4)
+    session = db_session_factory()
+    try:
+        from app.models.meal_item_record import MealItemRecord
+        from app.models.meal_menu_item import MealMenuItem
+        from app.models.meal_record import MealRecord
+
+        meal_menu_item = session.query(MealMenuItem).filter(MealMenuItem.meal_id == target_meal["id"]).one()
+        record = MealRecord(user_id=student["user_id"], meal_id=target_meal["id"], status="COMPLETED")
+        session.add(record)
+        session.flush()
+        session.add(
+            MealItemRecord(
+                meal_record_id=record.id,
+                meal_menu_item_id=meal_menu_item.id,
+                consumed_ratio=1.0,
+                consumption_level="ALL",
+                confidence=0.9,
+                analysis_type="MOCK",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(f"/api/v1/me/recommendations?meal_id={target_meal['id']}", headers=student["headers"])
+    assert response.status_code == 200
+    item = response.json()["data"]["items"][0]
+    assert item["sample_count"] == 2
+    assert item["recent_average_consumed_ratio"] == 0.3
+    assert item["recommendation_level"] == "LESS"
+    assert item["recommended_serving_ratio"] == 0.6

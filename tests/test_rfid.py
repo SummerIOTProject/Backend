@@ -23,8 +23,8 @@ def test_deactivate_card_and_scan_fail(client, create_account, create_menu, crea
     deactivate = client.patch(f"/api/v1/me/rfid-cards/{card['id']}/deactivate", headers=student["headers"])
     assert deactivate.status_code == 200
     response = client.post("/api/v1/device/rfid/scan", headers={"X-Device-Key": "device-secret"}, json={"uid": "04A3B29C7F6180", "meal_type": "LUNCH"})
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RFID_NOT_FOUND"
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INACTIVE_RFID_CARD"
 
 
 def test_device_key_validation(client):
@@ -74,5 +74,19 @@ def test_inactive_user_scan_fail(client, create_account, create_menu, create_mea
     finally:
         session.close()
     response = client.post("/api/v1/device/rfid/scan", headers={"X-Device-Key": "device-secret"}, json={"uid": "04A3B29C7F6180", "meal_type": "LUNCH"})
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "RFID_NOT_FOUND"
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "INACTIVE_USER"
+
+
+def test_scan_uses_configured_school_only(client, create_account, create_menu, create_meal):
+    admin = create_account(login_id="admin1", student_number="90000001", role="ADMIN")
+    student = create_account(login_id="student1", student_number="20223137")
+    menu1 = create_menu(admin["headers"], name="본교메뉴")
+    menu2 = create_menu(admin["headers"], name="타학교메뉴")
+    create_meal(admin["headers"], [menu1["id"]], meal_type="LUNCH", school_name="국민대학교")
+    create_meal(admin["headers"], [menu2["id"]], meal_type="LUNCH", school_name="다른학교")
+    client.post("/api/v1/me/rfid-cards", headers=student["headers"], json={"uid": "04A3B29C7F6180"})
+    response = client.post("/api/v1/device/rfid/scan", headers={"X-Device-Key": "device-secret"}, json={"uid": "04A3B29C7F6180", "meal_type": "LUNCH"})
+    assert response.status_code == 200
+    assert response.json()["data"]["meal"]["school_name"] == "국민대학교"
+    assert response.json()["data"]["meal"]["menu_items"][0]["name"] == "본교메뉴"

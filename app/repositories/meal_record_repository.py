@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.meal import Meal
@@ -81,3 +81,12 @@ class MealRecordRepository:
         record.failure_reason = failure_reason
         self.db.flush()
         return record
+
+    def claim_for_analysis(self, meal_record_id: int, *, allowed_statuses: list[MealRecordStatus]) -> int:
+        stmt = (
+            update(MealRecord)
+            .where(MealRecord.id == meal_record_id, MealRecord.status.in_(allowed_statuses))
+            .values(status=MealRecordStatus.ANALYZING, completed_at=None, failure_reason=None)
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0

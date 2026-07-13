@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.meal_menu_item import MealMenuItem
 from app.repositories.meal_repository import MealRepository
@@ -48,10 +49,10 @@ class MealService:
         return meal
 
     def get_today_meals(self):
-        return self.meal_repository.get_today()
+        return self.meal_repository.get_today(school_name=settings.SCHOOL_NAME)
 
     def get_today_meal_by_type(self, meal_type):
-        meal = self.meal_repository.get_today_meal_by_type(meal_type)
+        meal = self.meal_repository.get_today_meal_by_type(meal_type, school_name=settings.SCHOOL_NAME)
         if not meal:
             raise NotFoundException(message="급식을 찾을 수 없습니다.", code="MEAL_NOT_FOUND", detail=f"meal_type={meal_type}")
         return meal

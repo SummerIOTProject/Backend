@@ -41,4 +41,5 @@ class RecommendationLevel(str, Enum):
 
 class AnalysisType(str, Enum):
     MOCK = "MOCK"
+    GEMINI_VLM = "GEMINI_VLM"
     OPENAI_VLM = "OPENAI_VLM"

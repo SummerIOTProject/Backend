@@ -1,15 +1,14 @@
-from datetime import UTC, datetime
-
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import BadRequestException, ConflictException, ForbiddenException
+from app.core.exceptions import AppException, BadRequestException, ConflictException, ForbiddenException
 from app.repositories.meal_image_repository import MealImageRepository
 from app.repositories.meal_item_record_repository import MealItemRecordRepository
 from app.repositories.meal_record_repository import MealRecordRepository
 from app.services.vision_service import VisionService
+from app.utils.datetime import get_current_utc_datetime
 from app.utils.enums import ConsumptionLevel, ImageType, MealRecordStatus
 
 
@@ -34,16 +33,26 @@ class AnalysisService:
         if not after_image:
             raise BadRequestException(message="식후 이미지가 필요합니다.", code="AFTER_IMAGE_REQUIRED", detail="after image missing")
 
-        if record.status == MealRecordStatus.ANALYZING:
-            raise ConflictException(message="이미 분석 중입니다.", code="ANALYSIS_ALREADY_RUNNING", detail=f"meal_record_id={meal_record_id}")
         if record.status == MealRecordStatus.COMPLETED and not allow_completed:
             existing_items = self.meal_item_record_repository.list_by_record(meal_record_id)
             existing_type = existing_items[0].analysis_type if existing_items else self.vision_service.current_analysis_type()
-            return existing_items, existing_type
+            return existing_items, existing_type, "메뉴별 섭취율 분석 결과입니다."
         if allow_completed and any(item.is_corrected for item in record.item_records):
             raise ConflictException(message="보정된 결과가 있어 재분석할 수 없습니다.", code="CORRECTED_RESULT_EXISTS", detail=f"meal_record_id={meal_record_id}")
 
-        self.meal_record_repository.update_status(record, status=MealRecordStatus.ANALYZING, completed_at=None, failure_reason=None)
+        allowed_statuses = [MealRecordStatus.IMAGES_UPLOADED, MealRecordStatus.FAILED]
+        if allow_completed:
+            allowed_statuses.append(MealRecordStatus.COMPLETED)
+        claimed = self.meal_record_repository.claim_for_analysis(meal_record_id, allowed_statuses=allowed_statuses)
+        if claimed == 0:
+            refreshed = self.meal_record_repository.get_by_id(meal_record_id)
+            if refreshed and refreshed.status == MealRecordStatus.ANALYZING:
+                raise ConflictException(message="이미 분석 중입니다.", code="ANALYSIS_ALREADY_RUNNING", detail=f"meal_record_id={meal_record_id}")
+            if refreshed and refreshed.status == MealRecordStatus.COMPLETED and not allow_completed:
+                existing_items = self.meal_item_record_repository.list_by_record(meal_record_id)
+                existing_type = existing_items[0].analysis_type if existing_items else self.vision_service.current_analysis_type()
+                return existing_items, existing_type, "메뉴별 섭취율 분석 결과입니다."
+            raise ConflictException(message="현재 상태에서는 분석할 수 없습니다.", code="INVALID_ANALYSIS_STATE", detail=f"status={refreshed.status if refreshed else 'UNKNOWN'}")
         self.db.commit()
 
         try:
@@ -56,9 +65,9 @@ class AnalysisService:
                 for item in record.meal.meal_menu_items
             ]
             analysis_type, result = await self.vision_service.analyze(
-                before_path=str(Path(settings.UPLOAD_DIR) / before_image.image_url),
+                before_image=Path(settings.UPLOAD_DIR, before_image.image_url).read_bytes(),
                 before_mime_type=before_image.mime_type,
-                after_path=str(Path(settings.UPLOAD_DIR) / after_image.image_url),
+                after_image=Path(settings.UPLOAD_DIR, after_image.image_url).read_bytes(),
                 after_mime_type=after_image.mime_type,
                 menu_items=menu_items,
             )
@@ -81,13 +90,13 @@ class AnalysisService:
                     analysis_type=analysis_type,
                 )
             self.meal_record_repository.update_status(
-                record,
+                self.meal_record_repository.get_by_id(meal_record_id),
                 status=MealRecordStatus.COMPLETED,
-                completed_at=datetime.now(UTC),
+                completed_at=get_current_utc_datetime(),
                 failure_reason=None,
             )
             self.db.commit()
-            return self.meal_item_record_repository.list_by_record(meal_record_id), analysis_type
+            return self.meal_item_record_repository.list_by_record(meal_record_id), analysis_type, result.analysis_note
         except Exception as exc:
             self.db.rollback()
             failed_record = self.meal_record_repository.get_by_id(meal_record_id)
@@ -119,7 +128,7 @@ class AnalysisService:
             consumption_level=self._level(consumed_ratio),
             confidence=None,
             is_corrected=True,
-            corrected_at=datetime.now(UTC),
+            corrected_at=get_current_utc_datetime(),
             corrected_by=user_id,
             note=item_record.note,
             analysis_type=item_record.analysis_type,
@@ -163,7 +172,7 @@ class AnalysisService:
 
     @staticmethod
     def _safe_failure_reason(exc: Exception) -> str:
-        detail = str(exc)
+        detail = exc.detail if isinstance(exc, AppException) and exc.detail else str(exc)
         if len(detail) > 200:
             detail = detail[:200]
         return f"{type(exc).__name__}: {detail}"

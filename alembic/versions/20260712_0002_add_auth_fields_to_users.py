@@ -37,10 +37,63 @@ ALLERGENS = [
 ]
 
 
+def _get_allergen_id(bind, code: str) -> int | None:
+    return bind.execute(sa.text("SELECT id FROM allergens WHERE code = :code"), {"code": code}).scalar()
+
+
+def _merge_allergen_code(bind, old_code: str, new_code: str) -> None:
+    old_id = _get_allergen_id(bind, old_code)
+    new_id = _get_allergen_id(bind, new_code)
+    if old_id is None:
+        return
+    if new_id is None:
+        bind.execute(sa.text("UPDATE allergens SET code = :new_code WHERE id = :old_id"), {"new_code": new_code, "old_id": old_id})
+        return
+    if old_id == new_id:
+        return
+
+    bind.execute(
+        sa.text(
+            """
+            UPDATE user_allergies
+            SET allergen_id = :new_id
+            WHERE allergen_id = :old_id
+              AND NOT EXISTS (
+                SELECT 1
+                FROM user_allergies ua2
+                WHERE ua2.user_id = user_allergies.user_id
+                  AND ua2.allergen_id = :new_id
+              )
+            """
+        ),
+        {"old_id": old_id, "new_id": new_id},
+    )
+    bind.execute(sa.text("DELETE FROM user_allergies WHERE allergen_id = :old_id"), {"old_id": old_id})
+
+    bind.execute(
+        sa.text(
+            """
+            UPDATE menu_allergens
+            SET allergen_id = :new_id
+            WHERE allergen_id = :old_id
+              AND NOT EXISTS (
+                SELECT 1
+                FROM menu_allergens ma2
+                WHERE ma2.menu_id = menu_allergens.menu_id
+                  AND ma2.allergen_id = :new_id
+              )
+            """
+        ),
+        {"old_id": old_id, "new_id": new_id},
+    )
+    bind.execute(sa.text("DELETE FROM menu_allergens WHERE allergen_id = :old_id"), {"old_id": old_id})
+    bind.execute(sa.text("DELETE FROM allergens WHERE id = :old_id"), {"old_id": old_id})
+
+
 def upgrade() -> None:
     bind = op.get_bind()
-    bind.execute(sa.text("UPDATE allergens SET code = 'EGGS' WHERE code = 'EGG'"))
-    bind.execute(sa.text("UPDATE allergens SET code = 'SULFITES' WHERE code = 'SULFITE'"))
+    _merge_allergen_code(bind, "EGG", "EGGS")
+    _merge_allergen_code(bind, "SULFITE", "SULFITES")
 
     allergen_table = sa.table(
         "allergens",
@@ -68,6 +121,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    bind.execute(sa.text("UPDATE allergens SET code = 'EGG' WHERE code = 'EGGS'"))
-    bind.execute(sa.text("UPDATE allergens SET code = 'SULFITE' WHERE code = 'SULFITES'"))
+    _merge_allergen_code(bind, "EGGS", "EGG")
+    _merge_allergen_code(bind, "SULFITES", "SULFITE")
     bind.execute(sa.text("DELETE FROM allergens WHERE code = 'PINE_NUT'"))

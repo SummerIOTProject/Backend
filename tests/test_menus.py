@@ -57,6 +57,40 @@ def test_inactive_menu_cannot_be_used_in_meal(client, create_account, create_men
     assert response.json()["error"]["code"] == "MENU_INACTIVE"
 
 
+def test_menu_update_duplicate_name_conflict(client, create_account, create_menu):
+    admin = create_account(login_id="admin1", student_number="90000001", role="ADMIN")
+    menu1 = create_menu(admin["headers"], name="제육볶음")
+    menu2 = create_menu(admin["headers"], name="김치볶음")
+    response = client.patch(
+        f"/api/v1/admin/menus/{menu2['id']}",
+        headers=admin["headers"],
+        json={"name": "제육볶음"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "DUPLICATE_MENU_NAME"
+
+
+def test_menu_normalizes_duplicate_ingredients_and_allergens(client, create_account):
+    admin = create_account(login_id="admin1", student_number="90000001", role="ADMIN")
+    response = client.post(
+        "/api/v1/admin/menus",
+        headers=admin["headers"],
+        json={
+            "name": "정규화메뉴",
+            "standard_serving_g": 120,
+            "nutrition_per_100g": {"calories_kcal": 100, "carbohydrate_g": 10, "protein_g": 10, "fat_g": 5},
+            "ingredients": ["양파", " 양파 ", "", "고추장"],
+            "allergen_codes": ["milk", "MILK", " wheat "],
+        },
+    )
+    assert response.status_code == 201
+    detail = client.get(f"/api/v1/menus/{response.json()['data']['id']}")
+    assert detail.status_code == 200
+    body = detail.json()["data"]
+    assert body["ingredients"] == ["양파", "고추장"]
+    assert body["allergen_codes"] == ["MILK", "WHEAT"]
+
+
 def test_menu_schema_has_no_category_or_tray_section():
     assert "category" not in MenuCreateRequest.model_fields
     assert "tray_section" not in MenuCreateRequest.model_fields

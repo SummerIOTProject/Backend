@@ -22,5 +22,11 @@ class CommonResponse(BaseModel, Generic[T]):
     data: T | None = None
 
 
-class HealthResponse(BaseModel):
+class HealthStatusData(BaseModel):
     status: str
+    database: str | None = None
+    storage: str | None = None
+
+
+class HealthResponse(CommonResponse[HealthStatusData]):
+    pass

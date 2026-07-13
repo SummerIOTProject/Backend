@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.repositories.meal_image_repository import MealImageRepository
 from app.repositories.meal_record_repository import MealRecordRepository
+from app.services.meal_record_service import MealRecordService
 from app.utils.enums import ImageType
 from app.utils.files import (
     build_storage_path,
@@ -23,13 +24,12 @@ class ImageService:
         self.db = db
         self.image_repository = MealImageRepository(db)
         self.meal_record_repository = MealRecordRepository(db)
+        self.meal_record_service = MealRecordService(db)
 
     def upload_image(self, meal_record_id: int, image_type: ImageType, file: UploadFile):
         record = self.meal_record_repository.get_by_id(meal_record_id)
         if not record:
             raise NotFoundException(message="식사 기록을 찾을 수 없습니다.", code="MEAL_RECORD_NOT_FOUND", detail=f"meal_record_id={meal_record_id}")
-        if image_type == ImageType.AFTER and not self.image_repository.get_by_record_and_type(meal_record_id, ImageType.BEFORE):
-            raise BadRequestException(message="식전 이미지가 먼저 필요합니다.", code="BEFORE_IMAGE_REQUIRED", detail="before image missing")
         file_bytes, mime_type, extension = read_upload_file(file)
         existing = self.image_repository.get_by_record_and_type(meal_record_id, image_type)
         old_path = None
@@ -47,6 +47,7 @@ class ImageService:
                 mime_type=mime_type,
                 file_size=len(file_bytes),
             )
+            self.meal_record_service.recalculate_status_after_image_change(meal_record_id)
             self.db.commit()
             if old_path:
                 delete_file_if_exists(old_path)
@@ -69,4 +70,7 @@ class ImageService:
         return image
 
     def resolve_image_path(self, image) -> Path:
-        return resolve_storage_path(image.image_url)
+        path = resolve_storage_path(image.image_url)
+        if not path.exists():
+            raise NotFoundException(message="이미지 파일을 찾을 수 없습니다.", code="IMAGE_FILE_NOT_FOUND", detail=f"image_id={image.id}")
+        return path

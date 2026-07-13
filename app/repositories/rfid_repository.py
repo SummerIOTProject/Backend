@@ -1,7 +1,9 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.models.allergen import Allergen
 from app.models.rfid_card import RFIDCard
+from app.models.user_allergy import UserAllergy
 from app.models.user import User
 
 
@@ -16,13 +18,17 @@ class RfidRepository:
         return card
 
     def get_by_uid(self, uid: str) -> RFIDCard | None:
-        stmt = select(RFIDCard).options(joinedload(RFIDCard.user)).where(RFIDCard.uid == uid)
+        stmt = (
+            select(RFIDCard)
+            .options(joinedload(RFIDCard.user).joinedload(User.allergies).joinedload(UserAllergy.allergen))
+            .where(RFIDCard.uid == uid)
+        )
         return self.db.scalar(stmt)
 
     def get_active_by_uid(self, uid: str) -> RFIDCard | None:
         stmt = (
             select(RFIDCard)
-            .options(joinedload(RFIDCard.user).joinedload(User.allergies))
+            .options(joinedload(RFIDCard.user).joinedload(User.allergies).joinedload(UserAllergy.allergen))
             .join(User, User.id == RFIDCard.user_id)
             .where(RFIDCard.uid == uid, RFIDCard.is_active.is_(True), User.is_active.is_(True))
         )
