@@ -1,6 +1,11 @@
 from enum import Enum
 
 
+class UserRole(str, Enum):
+    STUDENT = "STUDENT"
+    ADMIN = "ADMIN"
+
+
 class MealType(str, Enum):
     BREAKFAST = "BREAKFAST"
     LUNCH = "LUNCH"
@@ -32,9 +37,8 @@ class ConsumptionLevel(str, Enum):
 class RecommendationLevel(str, Enum):
     LESS = "LESS"
     NORMAL = "NORMAL"
-    MORE = "MORE"
 
 
 class AnalysisType(str, Enum):
     MOCK = "MOCK"
-    LLM_VISION = "LLM_VISION"
+    OPENAI_VLM = "OPENAI_VLM"

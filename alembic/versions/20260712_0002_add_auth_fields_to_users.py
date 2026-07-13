@@ -1,8 +1,8 @@
-"""add auth fields to users
+"""normalize allergen seed codes
 
 Revision ID: 20260712_0002
 Revises: 20260712_0001
-Create Date: 2026-07-12 00:30:00
+Create Date: 2026-07-13 10:00:00
 """
 
 from alembic import op
@@ -14,27 +14,60 @@ down_revision = "20260712_0001"
 branch_labels = None
 depends_on = None
 
+ALLERGENS = [
+    ("EGGS", "난류", 1),
+    ("MILK", "우유", 2),
+    ("BUCKWHEAT", "메밀", 3),
+    ("PEANUT", "땅콩", 4),
+    ("SOYBEAN", "대두", 5),
+    ("WHEAT", "밀", 6),
+    ("MACKEREL", "고등어", 7),
+    ("CRAB", "게", 8),
+    ("SHRIMP", "새우", 9),
+    ("PORK", "돼지고기", 10),
+    ("PEACH", "복숭아", 11),
+    ("TOMATO", "토마토", 12),
+    ("SULFITES", "아황산류", 13),
+    ("WALNUT", "호두", 14),
+    ("CHICKEN", "닭고기", 15),
+    ("BEEF", "쇠고기", 16),
+    ("SQUID", "오징어", 17),
+    ("SHELLFISH", "조개류", 18),
+    ("PINE_NUT", "잣", 19),
+]
+
 
 def upgrade() -> None:
-    with op.batch_alter_table("users") as batch_op:
-        batch_op.add_column(sa.Column("email", sa.String(length=255), nullable=True))
-        batch_op.add_column(sa.Column("hashed_password", sa.String(length=255), nullable=True))
-        batch_op.add_column(sa.Column("role", sa.String(length=20), nullable=False, server_default="STUDENT"))
-        batch_op.add_column(sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()))
-        batch_op.create_index("ix_users_email", ["email"], unique=True)
+    bind = op.get_bind()
+    bind.execute(sa.text("UPDATE allergens SET code = 'EGGS' WHERE code = 'EGG'"))
+    bind.execute(sa.text("UPDATE allergens SET code = 'SULFITES' WHERE code = 'SULFITE'"))
 
-    op.execute("UPDATE users SET email = student_number || '@example.com' WHERE email IS NULL")
-    op.execute("UPDATE users SET hashed_password = 'legacy-account' WHERE hashed_password IS NULL")
-
-    with op.batch_alter_table("users") as batch_op:
-        batch_op.alter_column("email", existing_type=sa.String(length=255), nullable=False)
-        batch_op.alter_column("hashed_password", existing_type=sa.String(length=255), nullable=False)
+    allergen_table = sa.table(
+        "allergens",
+        sa.column("code", sa.String()),
+        sa.column("name_ko", sa.String()),
+        sa.column("display_number", sa.Integer()),
+        sa.column("description", sa.String()),
+        sa.column("is_active", sa.Boolean()),
+    )
+    existing_codes = {row[0] for row in bind.execute(sa.text("SELECT code FROM allergens"))}
+    for code, name_ko, display_number in ALLERGENS:
+        if code in existing_codes:
+            bind.execute(
+                sa.text(
+                    "UPDATE allergens SET name_ko = :name_ko, display_number = :display_number, is_active = 1 WHERE code = :code"
+                ),
+                {"code": code, "name_ko": name_ko, "display_number": display_number},
+            )
+        else:
+            op.bulk_insert(
+                allergen_table,
+                [{"code": code, "name_ko": name_ko, "display_number": display_number, "description": None, "is_active": True}],
+            )
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("users") as batch_op:
-        batch_op.drop_index("ix_users_email")
-        batch_op.drop_column("is_active")
-        batch_op.drop_column("role")
-        batch_op.drop_column("hashed_password")
-        batch_op.drop_column("email")
+    bind = op.get_bind()
+    bind.execute(sa.text("UPDATE allergens SET code = 'EGG' WHERE code = 'EGGS'"))
+    bind.execute(sa.text("UPDATE allergens SET code = 'SULFITE' WHERE code = 'SULFITES'"))
+    bind.execute(sa.text("DELETE FROM allergens WHERE code = 'PINE_NUT'"))

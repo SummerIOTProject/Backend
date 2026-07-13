@@ -1,84 +1,32 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 
-from app.api.dependencies import get_meal_record_service
-from app.core.security import require_active_user, require_admin
+from app.api.mappers.response_mappers import to_meal_record_response
+from app.api.dependencies import get_meal_record_service, get_nutrition_service
+from app.core.security import get_current_user, require_admin
 from app.schemas.common import CommonResponse
-from app.schemas.meal_record import MealRecordCreateRequest, MealRecordDetailResponse, MealRecordResponse
+from app.schemas.meal_record import MealRecordDetailResponse
 from app.services.meal_record_service import MealRecordService
+from app.services.nutrition_service import NutritionService
 
 router = APIRouter(tags=["Meal Records"])
 
 
-@router.post(
-    "/meal-records",
-    summary="식사 기록 생성",
-    description="사용자와 식단 기준으로 식사 기록을 생성합니다.",
-    response_model=CommonResponse[MealRecordDetailResponse],
-    status_code=status.HTTP_201_CREATED,
-)
-def create_meal_record(request: MealRecordCreateRequest, service: MealRecordService = Depends(get_meal_record_service)):
-    record = service.create_record(request)
-    return CommonResponse(success=True, message="식사 기록이 생성되었습니다.", data=MealRecordDetailResponse.model_validate(record))
-
-
-@router.get(
-    "/meal-records/{meal_record_id}",
-    summary="식사 기록 상세 조회",
-    description="식사 기록 상세 정보를 조회합니다.",
-    response_model=CommonResponse[MealRecordDetailResponse],
-    status_code=status.HTTP_200_OK,
-)
-def get_meal_record(meal_record_id: int, service: MealRecordService = Depends(get_meal_record_service)):
-    record = service.get_record_detail(meal_record_id)
-    return CommonResponse(success=True, message="식사 기록 상세 정보입니다.", data=MealRecordDetailResponse.model_validate(record))
-
-
-@router.get(
-    "/users/{user_id}/meal-records",
-    summary="사용자 식사 기록 조회",
-    description="특정 사용자의 식사 기록 목록을 조회합니다.",
-    response_model=CommonResponse[list[MealRecordResponse]],
-    status_code=status.HTTP_200_OK,
-)
-def list_user_meal_records(
-    user_id: int,
+@router.get("/me/meal-records/{meal_record_id}", response_model=CommonResponse[MealRecordDetailResponse])
+def get_my_record(
+    meal_record_id: int,
+    current_user=Depends(get_current_user),
     service: MealRecordService = Depends(get_meal_record_service),
-    _: object = Depends(require_admin),
+    nutrition_service: NutritionService = Depends(get_nutrition_service),
 ):
-    records = service.list_user_records(user_id)
-    return CommonResponse(
-        success=True,
-        message="사용자 식사 기록 목록입니다.",
-        data=[MealRecordResponse.model_validate(record) for record in records],
-    )
+    record = service.assert_owner(meal_record_id, current_user.id)
+    return CommonResponse(message="식사 기록 상세입니다.", data=to_meal_record_response(record, nutrition_service))
 
 
-@router.delete(
-    "/meal-records/{meal_record_id}",
-    summary="식사 기록 삭제",
-    description="식사 기록을 삭제합니다.",
-    response_model=CommonResponse[None],
-    status_code=status.HTTP_200_OK,
-)
-def delete_meal_record(meal_record_id: int, service: MealRecordService = Depends(get_meal_record_service)):
-    service.delete_record(meal_record_id)
-    return CommonResponse(success=True, message="식사 기록이 삭제되었습니다.", data=None)
-
-
-@router.get(
-    "/admin/meal-records",
-    summary="전체 식사 기록 조회",
-    description="관리자가 전체 식사 기록을 조회합니다.",
-    response_model=CommonResponse[list[MealRecordResponse]],
-    status_code=status.HTTP_200_OK,
-)
-def list_all_meal_records(
+@router.get("/admin/meal-records", response_model=CommonResponse[list[MealRecordDetailResponse]])
+def list_all_records(
+    _: object = Depends(require_admin),
     service: MealRecordService = Depends(get_meal_record_service),
-    _: object = Depends(require_admin),
+    nutrition_service: NutritionService = Depends(get_nutrition_service),
 ):
-    records = service.list_all_records()
-    return CommonResponse(
-        success=True,
-        message="전체 식사 기록 목록입니다.",
-        data=[MealRecordResponse.model_validate(record) for record in records],
-    )
+    items = service.list_all()
+    return CommonResponse(message="전체 식사 기록 목록입니다.", data=[to_meal_record_response(item, nutrition_service) for item in items])

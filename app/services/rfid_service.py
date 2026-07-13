@@ -1,9 +1,8 @@
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException
 from app.repositories.rfid_repository import RfidRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.rfid import RfidCardCreateRequest, RfidScanRequest
 
 
 class RfidService:
@@ -12,55 +11,30 @@ class RfidService:
         self.rfid_repository = RfidRepository(db)
         self.user_repository = UserRepository(db)
 
-    def register_card(self, request: RfidCardCreateRequest):
-        user = self.user_repository.get_by_id(request.user_id)
-        if not user:
-            raise NotFoundException(
-                message="사용자를 찾을 수 없습니다.",
-                code="USER_NOT_FOUND",
-                detail=f"user_id={request.user_id}에 해당하는 사용자가 없습니다.",
-            )
-        existing = self.rfid_repository.get_by_uid(request.uid)
-        if existing:
-            raise ConflictException(
-                message="이미 등록된 RFID UID입니다.",
-                code="DUPLICATE_RFID_UID",
-                detail=f"uid={request.uid}",
-            )
-        card = self.rfid_repository.create(user_id=request.user_id, uid=request.uid)
+    def register_my_card(self, user_id: int, uid: str):
+        if self.rfid_repository.get_by_uid(uid):
+            raise ConflictException(message="이미 등록된 RFID UID입니다.", code="RFID_ALREADY_REGISTERED", detail=uid)
+        card = self.rfid_repository.create(user_id=user_id, uid=uid)
         self.db.commit()
         self.db.refresh(card)
         return card
 
-    def scan_card(self, request: RfidScanRequest):
-        card = self.rfid_repository.get_active_by_uid(request.uid)
+    def get_active_card_by_uid(self, uid: str):
+        card = self.rfid_repository.get_active_by_uid(uid)
         if not card:
-            raise NotFoundException(
-                message="활성 RFID 카드를 찾을 수 없습니다.",
-                code="RFID_NOT_FOUND",
-                detail=f"uid={request.uid}",
-            )
+            raise NotFoundException(message="RFID 카드를 찾을 수 없습니다.", code="RFID_NOT_FOUND", detail=uid)
         return card
 
-    def deactivate_card(self, card_id: int):
+    def list_my_cards(self, user_id: int):
+        return self.rfid_repository.list_by_user(user_id)
+
+    def deactivate_my_card(self, user_id: int, card_id: int):
         card = self.rfid_repository.get_by_id(card_id)
         if not card:
-            raise NotFoundException(
-                message="RFID 카드를 찾을 수 없습니다.",
-                code="RFID_NOT_FOUND",
-                detail=f"card_id={card_id}",
-            )
-        card = self.rfid_repository.deactivate(card)
+            raise NotFoundException(message="RFID 카드를 찾을 수 없습니다.", code="RFID_NOT_FOUND", detail=f"card_id={card_id}")
+        if card.user_id != user_id:
+            raise ForbiddenException(message="접근 권한이 없습니다.", code="FORBIDDEN_RESOURCE", detail=f"card_id={card_id}")
+        card.is_active = False
         self.db.commit()
         self.db.refresh(card)
         return card
-
-    def list_user_cards(self, user_id: int):
-        user = self.user_repository.get_by_id(user_id)
-        if not user:
-            raise NotFoundException(
-                message="사용자를 찾을 수 없습니다.",
-                code="USER_NOT_FOUND",
-                detail=f"user_id={user_id}에 해당하는 사용자가 없습니다.",
-            )
-        return self.rfid_repository.list_by_user(user_id)

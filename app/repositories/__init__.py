@@ -1,1 +1,10 @@
-"""Repository layer."""
+from app.repositories.allergen_repository import AllergenRepository
+from app.repositories.auth_repository import AuthRepository
+from app.repositories.meal_image_repository import MealImageRepository
+from app.repositories.meal_item_record_repository import MealItemRecordRepository
+from app.repositories.meal_record_repository import MealRecordRepository
+from app.repositories.meal_repository import MealRepository
+from app.repositories.menu_repository import MenuRepository
+from app.repositories.recommendation_repository import RecommendationRepository
+from app.repositories.rfid_repository import RfidRepository
+from app.repositories.user_repository import UserRepository

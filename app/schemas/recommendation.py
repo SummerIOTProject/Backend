@@ -1,23 +1,24 @@
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict
 
 from app.utils.enums import RecommendationLevel
 
 
-class ServingRecommendationItemResponse(BaseModel):
+class RecommendationItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    meal_id: int
     meal_menu_item_id: int
+    menu_id: int
     menu_name: str
+    standard_serving_g: float
     recommendation_level: RecommendationLevel
-    average_consumed_ratio: float | None
+    recommended_serving_ratio: float
+    recommended_serving_g: float
+    recent_average_consumed_ratio: float | None
+    sample_count: int
     reason: str
-    created_at: datetime
 
 
-class ServingRecommendationResponse(BaseModel):
-    user_id: int
-    meal_id: int | None = None
-    items: list[ServingRecommendationItemResponse]
+class RecommendationListResponse(BaseModel):
+    meal_id: int
+    items: list[RecommendationItemResponse]

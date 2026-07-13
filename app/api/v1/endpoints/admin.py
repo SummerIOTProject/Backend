@@ -1,41 +1,43 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import get_recommendation_service
-from app.core.security import verify_admin_api_key
-from app.schemas.common import AdminDashboardResponse, CommonResponse, LeftoverSummaryResponse
+from app.api.mappers.response_mappers import to_admin_dashboard_response, to_leftover_summary_items
+from app.api.dependencies import get_recommendation_service, get_user_service
+from app.core.security import require_admin
+from app.schemas.admin import AdminDashboardResponse, AdminUserListResponse, LeftoverSummaryItemResponse
+from app.schemas.common import CommonResponse
+from app.schemas.user import UserResponse
 from app.services.recommendation_service import RecommendationService
+from app.services.user_service import UserService
 
-router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(verify_admin_api_key)])
+router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
 
 
-@router.get(
-    "/dashboard",
-    summary="관리자 대시보드 통계",
-    description="특정 날짜 기준 사용자, 기록, 분석 통계를 조회합니다.",
-    response_model=CommonResponse[AdminDashboardResponse],
-    status_code=status.HTTP_200_OK,
-)
-def get_dashboard(
-    date_value: date = Query(..., alias="date"),
-    service: RecommendationService = Depends(get_recommendation_service),
+@router.get("/users", response_model=CommonResponse[AdminUserListResponse])
+def list_users(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    service: UserService = Depends(get_user_service),
 ):
-    result = service.get_admin_dashboard(date_value)
-    return CommonResponse(success=True, message="관리자 대시보드 통계입니다.", data=AdminDashboardResponse.model_validate(result))
+    items, total = service.list_users(page=page, size=size, keyword=keyword, is_active=is_active)
+    return CommonResponse(
+        message="사용자 목록입니다.",
+        data=AdminUserListResponse(items=[UserResponse.model_validate(item) for item in items], page=page, size=size, total=total),
+    )
 
 
-@router.get(
-    "/leftover-summary",
-    summary="잔반 요약 통계",
-    description="기간 내 메뉴별 평균 섭취율과 잔반율을 조회합니다.",
-    response_model=CommonResponse[LeftoverSummaryResponse],
-    status_code=status.HTTP_200_OK,
-)
+@router.get("/dashboard", response_model=CommonResponse[AdminDashboardResponse])
+def get_dashboard(date_value: date = Query(..., alias="date"), service: RecommendationService = Depends(get_recommendation_service)):
+    return CommonResponse(message="관리자 대시보드입니다.", data=to_admin_dashboard_response(service.get_dashboard(date_value)))
+
+
+@router.get("/leftover-summary", response_model=CommonResponse[list[LeftoverSummaryItemResponse]])
 def get_leftover_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
     service: RecommendationService = Depends(get_recommendation_service),
 ):
-    result = service.get_leftover_summary(start_date=start_date, end_date=end_date)
-    return CommonResponse(success=True, message="잔반 요약 통계입니다.", data=LeftoverSummaryResponse.model_validate(result))
+    return CommonResponse(message="잔반 통계입니다.", data=to_leftover_summary_items(service.get_leftover_summary(start_date, end_date)))

@@ -12,11 +12,11 @@ class MealImageResponse(BaseModel):
     meal_record_id: int
     image_type: ImageType
     image_url: str
-    original_filename: str | None
-    content_type: str | None
-    uploaded_at: datetime
+    mime_type: str
+    file_size: int
+    created_at: datetime
 
 
-class MealImageListResponse(BaseModel):
-    items: list[MealImageResponse]
-    total: int
+class MealImageUploadResponse(BaseModel):
+    image_id: int
+    image_url: str
