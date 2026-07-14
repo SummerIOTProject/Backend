@@ -30,7 +30,6 @@ class VercelBlobStorage(ImageStorage):
     backend_name = "VERCEL_BLOB"
 
     def __init__(self) -> None:
-        self.store_id = settings.BLOB_STORE_ID or ""
         self.read_write_token = settings.BLOB_READ_WRITE_TOKEN
         self.oidc_token = settings.VERCEL_OIDC_TOKEN
 
@@ -62,8 +61,6 @@ class VercelBlobStorage(ImageStorage):
         self.validate_configuration()
 
     def validate_configuration(self) -> None:
-        if not self.store_id:
-            raise RuntimeError("BLOB_STORE_ID is not configured.")
         if BlobClient is None:
             raise RuntimeError("Vercel Blob SDK is not installed. Install the 'vercel' package.")
         if not self.read_write_token:
@@ -89,16 +86,26 @@ class VercelBlobStorage(ImageStorage):
         return raw_key
 
     @staticmethod
+    def _get_status_code(exc: Exception) -> int | None:
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        response = getattr(exc, "response", None)
+        response_status_code = getattr(response, "status_code", None)
+        if isinstance(response_status_code, int):
+            return response_status_code
+        return None
+
+    @staticmethod
     def _is_not_found_error(exc: Exception) -> bool:
         if BlobNotFoundError is not None and isinstance(exc, BlobNotFoundError):
             return True
-        status_code = getattr(exc, "status_code", None)
-        return isinstance(status_code, int) and status_code == 404
+        return VercelBlobStorage._get_status_code(exc) == 404
 
     @staticmethod
     def _raise_storage_error(exc: Exception, *, operation: str) -> NoReturn:
         detail = f"{operation}:{type(exc).__name__}"
-        status_code = getattr(exc, "status_code", None)
+        status_code = VercelBlobStorage._get_status_code(exc)
         if BlobAccessError is not None and isinstance(exc, (BlobAccessError, BlobNoTokenProvidedError)):
             raise ServerException(message="이미지 저장소 인증에 실패했습니다.", code="STORAGE_AUTHENTICATION_FAILED", detail=detail) from exc
         if BlobStoreNotFoundError is not None and isinstance(exc, BlobStoreNotFoundError):

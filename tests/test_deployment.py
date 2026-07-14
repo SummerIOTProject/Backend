@@ -155,7 +155,7 @@ def test_vercel_blob_settings_success():
         _env_file=None,
         APP_ENV="development",
         STORAGE_BACKEND="VERCEL_BLOB",
-        BLOB_STORE_ID="store",
+        BLOB_STORE_ID="",
         BLOB_READ_WRITE_TOKEN="token",
     )
     assert settings.STORAGE_BACKEND == "VERCEL_BLOB"

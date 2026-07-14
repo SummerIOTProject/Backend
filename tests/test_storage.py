@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from app.core.config import Settings
@@ -39,6 +40,12 @@ class FakeBlobServiceRateLimited(Exception):
 
 class FakeBlobStoreSuspendedError(Exception):
     pass
+
+
+def make_http_status_error(status_code: int):
+    request = httpx.Request("GET", "https://example.invalid/blob")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError("blob request failed", request=request, response=response)
 
 
 class FakeBlobClient:
@@ -117,7 +124,7 @@ def _make_storage(monkeypatch, *, token="token", vercel=False):
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobServiceNotAvailable", FakeBlobServiceNotAvailable)
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobServiceRateLimited", FakeBlobServiceRateLimited)
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobStoreSuspendedError", FakeBlobStoreSuspendedError)
-    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "store-id")
+    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "")
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_READ_WRITE_TOKEN", token)
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.VERCEL_OIDC_TOKEN", "oidc-token")
     if vercel:
@@ -135,7 +142,7 @@ def test_storage_factory_selects_local(monkeypatch):
 def test_storage_factory_selects_vercel_blob(monkeypatch):
     monkeypatch.setattr("app.services.storage.factory.settings.STORAGE_BACKEND", "VERCEL_BLOB")
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobClient", FakeBlobClient)
-    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "store")
+    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "")
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_READ_WRITE_TOKEN", "token")
     monkeypatch.delenv("VERCEL", raising=False)
     assert isinstance(build_image_storage(), VercelBlobStorage)
@@ -167,7 +174,7 @@ def test_local_storage_missing_file(tmp_path, monkeypatch):
 
 def test_vercel_blob_storage_missing_auth_fails(monkeypatch):
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobClient", FakeBlobClient)
-    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "store")
+    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "")
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_READ_WRITE_TOKEN", None)
     monkeypatch.delenv("VERCEL", raising=False)
     storage = VercelBlobStorage()
@@ -355,6 +362,76 @@ def test_context_manager_closed_on_error(monkeypatch):
     assert client.closed is True
 
 
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (FakeBlobError(429), 429),
+        (make_http_status_error(503), 503),
+        (FakeBlobError("429"), None),
+        (Exception("no status"), None),
+    ],
+)
+def test_get_status_code_handles_status_and_response(exc, expected):
+    assert VercelBlobStorage._get_status_code(exc) == expected
+
+
+def test_get_status_code_prefers_exc_status_code_over_response():
+    error = make_http_status_error(503)
+    error.status_code = 401
+    assert VercelBlobStorage._get_status_code(error) == 401
+
+
+def test_get_status_code_ignores_string_response_status():
+    error = Exception("bad response")
+    error.response = SimpleNamespace(status_code="404")  # type: ignore[attr-defined]
+    assert VercelBlobStorage._get_status_code(error) is None
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (400, "STORAGE_REQUEST_INVALID"),
+        (401, "STORAGE_AUTHENTICATION_FAILED"),
+        (403, "STORAGE_PERMISSION_DENIED"),
+        (429, "STORAGE_UNAVAILABLE"),
+        (503, "STORAGE_UNAVAILABLE"),
+    ],
+)
+def test_http_status_error_fallback_maps_read_errors(monkeypatch, status_code, expected_code):
+    storage = _make_storage(monkeypatch)
+    client = FakeBlobClient()
+    client.behavior["get"] = make_http_status_error(status_code)
+    monkeypatch.setattr(storage, "_create_client", lambda: client)
+    with pytest.raises(ServerException) as exc_info:
+        storage.read("meal-images/1/before/test.jpg")
+    assert exc_info.value.code == expected_code
+
+
+def test_http_status_error_404_read_maps_to_image_not_found(monkeypatch):
+    storage = _make_storage(monkeypatch)
+    client = FakeBlobClient()
+    client.behavior["get"] = make_http_status_error(404)
+    monkeypatch.setattr(storage, "_create_client", lambda: client)
+    with pytest.raises(NotFoundException):
+        storage.read("meal-images/1/before/test.jpg")
+
+
+def test_http_status_error_404_exists_returns_false(monkeypatch):
+    storage = _make_storage(monkeypatch)
+    client = FakeBlobClient()
+    client.behavior["head"] = make_http_status_error(404)
+    monkeypatch.setattr(storage, "_create_client", lambda: client)
+    assert storage.exists("meal-images/1/before/test.jpg") is False
+
+
+def test_http_status_error_404_delete_is_idempotent(monkeypatch):
+    storage = _make_storage(monkeypatch)
+    client = FakeBlobClient()
+    client.behavior["delete"] = make_http_status_error(404)
+    monkeypatch.setattr(storage, "_create_client", lambda: client)
+    storage.delete("meal-images/1/before/test.jpg")
+
+
 def test_production_settings_require_postgres_and_blob_on_vercel():
     with pytest.raises(ValueError):
         Settings(
@@ -380,9 +457,31 @@ def test_vercel_runtime_still_requires_read_write_token():
         )
 
 
+def test_vercel_blob_settings_allow_missing_store_id():
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="development",
+        STORAGE_BACKEND="VERCEL_BLOB",
+        BLOB_STORE_ID="",
+        BLOB_READ_WRITE_TOKEN="token",
+    )
+    assert settings.STORAGE_BACKEND == "VERCEL_BLOB"
+
+
+def test_vercel_blob_settings_store_id_without_token_fails():
+    with pytest.raises(ValueError):
+        Settings(
+            _env_file=None,
+            APP_ENV="development",
+            STORAGE_BACKEND="VERCEL_BLOB",
+            BLOB_STORE_ID="store-id",
+            BLOB_READ_WRITE_TOKEN="",
+        )
+
+
 def test_blobclient_import_missing_fails(monkeypatch):
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.BlobClient", None)
-    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "store")
+    monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_STORE_ID", "")
     monkeypatch.setattr("app.services.storage.vercel_blob_storage.settings.BLOB_READ_WRITE_TOKEN", "token")
     storage = VercelBlobStorage()
     with pytest.raises(RuntimeError):

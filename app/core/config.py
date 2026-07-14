@@ -119,8 +119,6 @@ class Settings(BaseSettings):
             if not self.resolved_openai_model:
                 raise ValueError("OPENAI_MODEL or legacy VISION_MODEL is required when VISION_ANALYSIS_MODE=OPENAI_VLM.")
         if self.STORAGE_BACKEND == "VERCEL_BLOB":
-            if not self.BLOB_STORE_ID:
-                raise ValueError("BLOB_STORE_ID is required when STORAGE_BACKEND=VERCEL_BLOB.")
             if not self.has_blob_auth:
                 raise ValueError("BLOB_READ_WRITE_TOKEN is required when STORAGE_BACKEND=VERCEL_BLOB.")
         if self.APP_ENV != "development":

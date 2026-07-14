@@ -69,7 +69,6 @@ VISION_TIMEOUT_SECONDS=60
 VISION_MAX_RETRIES=2
 
 STORAGE_BACKEND=LOCAL
-BLOB_STORE_ID=
 BLOB_READ_WRITE_TOKEN=
 VERCEL_OIDC_TOKEN=
 
@@ -140,7 +139,6 @@ DEBUG=false
 DATABASE_URL=postgresql+psycopg://pooled-user:password@host/db
 DATABASE_URL_UNPOOLED=postgresql+psycopg://direct-user:password@host/db
 STORAGE_BACKEND=VERCEL_BLOB
-BLOB_STORE_ID=...
 BLOB_READ_WRITE_TOKEN=...
 ```
 
@@ -350,6 +348,7 @@ Vercel 환경에서는 요청 본문 제한 때문에 원본 이미지가 4MB를
 - `STORAGE_BACKEND=VERCEL_BLOB`일 때 Private Blob을 사용합니다.
 - Private Blob은 읽기와 쓰기 모두 인증이 필요합니다.
 - 현재 구현에서는 Vercel 환경이어도 `BLOB_READ_WRITE_TOKEN`이 필수입니다.
+- `BLOB_STORE_ID`는 현재 BlobClient 기반 구현에서 필수가 아닌 선택 설정입니다.
 - `VERCEL_OIDC_TOKEN`은 일반 Blob token처럼 직접 전달하지 않습니다.
 - 공식 OIDC 인증 경로는 향후 별도 검증 후 적용해야 합니다.
 - DB에는 공개 URL 대신 storage key를 저장합니다.
@@ -357,6 +356,7 @@ Vercel 환경에서는 요청 본문 제한 때문에 원본 이미지가 4MB를
 - Private Blob `get`에는 `access=\"private\"`를 명시합니다.
 - `exists`는 `head`를 사용하고, `read`는 `get`, `delete`는 `delete`를 사용합니다.
 - 없는 파일과 인증·서비스 오류를 구분합니다.
+- HTTP 상태 기반 fallback 분류가 필요할 때는 `exc.status_code`와 `exc.response.status_code`를 순서대로 사용합니다.
 - Blob SDK 호출 실패 시 LOCAL 저장소로 자동 fallback하지 않습니다.
 - readiness의 `storage=UP`은 설정이 유효하다는 의미이며, 실제 Blob 네트워크 연결을 매 요청 검증하지는 않습니다.
 - 실제 Blob 동작은 배포 후 업로드, 조회, 재업로드 흐름으로 확인해야 합니다.
