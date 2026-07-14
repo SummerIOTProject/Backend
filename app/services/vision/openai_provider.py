@@ -30,20 +30,19 @@ class OpenAIVisionProvider(VisionProvider):
     provider_name = "openai"
     _client_cache: dict[tuple[str, str], object] = {}
 
-    def __init__(self) -> None:
-        self.model_name = settings.resolved_openai_model or ""
+    def __init__(self, *, model_name: str | None = None) -> None:
+        self.model_name = model_name or settings.resolved_openai_model or ""
         cache_key = (settings.OPENAI_API_KEY or "", self.model_name)
         if cache_key not in self._client_cache:
             self._client_cache[cache_key] = self._create_client()
         self.client = self._client_cache[cache_key]
 
-    @staticmethod
-    def _create_client():
+    def _create_client(self):
         from openai import AsyncOpenAI
 
         if not settings.OPENAI_API_KEY:
             raise OpenAIVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="OPENAI_API_KEY missing")
-        if not settings.resolved_openai_model:
+        if not self.model_name:
             raise OpenAIVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="OPENAI_MODEL missing")
         return AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=settings.VISION_TIMEOUT_SECONDS)
 
@@ -131,26 +130,36 @@ class OpenAIVisionProvider(VisionProvider):
             schema=build_compare_result_schema(),
             parser=VisionImageComparisonResultSchema.model_validate_json,
             item_count=0,
+            retry_parse_once=True,
         )
 
-    async def _run_structured_request(self, *, prompt: dict, schema_name: str, schema: dict, parser, item_count: int):
+    async def _run_structured_request(self, *, prompt: dict, schema_name: str, schema: dict, parser, item_count: int, retry_parse_once: bool = False):
         request_id = uuid4().hex
         start_time = time.perf_counter()
         try:
             async def _call():
-                response = await self.client.responses.create(
-                    model=self.model_name,
-                    input=[prompt],
-                    text={
-                        "format": {
-                            "type": "json_schema",
-                            "name": schema_name,
-                            "schema": schema,
-                            "strict": True,
-                        }
-                    },
-                )
-                return parser(response.output_text)
+                attempts = 2 if retry_parse_once else 1
+                last_exc = None
+                for _ in range(attempts):
+                    response = await self.client.responses.create(
+                        model=self.model_name,
+                        input=[prompt],
+                        text={
+                            "format": {
+                                "type": "json_schema",
+                                "name": schema_name,
+                                "schema": schema,
+                                "strict": True,
+                            }
+                        },
+                    )
+                    try:
+                        return parser(response.output_text)
+                    except (json.JSONDecodeError, ValidationError) as exc:
+                        last_exc = exc
+                if last_exc is not None:
+                    raise last_exc
+                raise OpenAIVisionError(message="VLM 응답 형식이 올바르지 않습니다.", code="INVALID_VLM_RESPONSE", status_code=400, detail="empty response")
 
             async def _on_retry(exc: Exception, attempt: int):
                 logger.warning("vlm_retry provider=%s request_id=%s model=%s attempt=%s error=%s", self.provider_name, request_id, self.model_name, attempt, type(exc).__name__)

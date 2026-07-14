@@ -164,6 +164,7 @@ class GeminiVisionProvider(VisionProvider):
             schema=build_compare_result_schema(),
             parser=VisionImageComparisonResultSchema.model_validate_json,
             item_count=0,
+            retry_parse_once=True,
         )
 
     async def _run_structured_analysis(
@@ -177,23 +178,33 @@ class GeminiVisionProvider(VisionProvider):
         schema: dict,
         parser,
         item_count: int,
+        retry_parse_once: bool = False,
     ):
         request_id = uuid4().hex
         start_time = time.perf_counter()
         try:
             async def _call():
-                response = await asyncio.wait_for(
-                    self._generate_content(
-                        before_image=before_image,
-                        before_mime_type=before_mime_type,
-                        after_image=after_image,
-                        after_mime_type=after_mime_type,
-                        prompt_text=prompt_text,
-                        schema=schema,
-                    ),
-                    timeout=getattr(self, "timeout_seconds", settings.VISION_TIMEOUT_SECONDS),
-                )
-                return self._parse_response(response, parser=parser)
+                attempts = 2 if retry_parse_once else 1
+                last_exc = None
+                for _ in range(attempts):
+                    response = await asyncio.wait_for(
+                        self._generate_content(
+                            before_image=before_image,
+                            before_mime_type=before_mime_type,
+                            after_image=after_image,
+                            after_mime_type=after_mime_type,
+                            prompt_text=prompt_text,
+                            schema=schema,
+                        ),
+                        timeout=getattr(self, "timeout_seconds", settings.VISION_TIMEOUT_SECONDS),
+                    )
+                    try:
+                        return self._parse_response(response, parser=parser)
+                    except (json.JSONDecodeError, ValidationError) as exc:
+                        last_exc = exc
+                if last_exc is not None:
+                    raise last_exc
+                raise GeminiVisionError(message="VLM 응답 형식이 올바르지 않습니다.", code="INVALID_VLM_RESPONSE", status_code=400, detail="empty response")
 
             async def _on_retry(exc: Exception, attempt: int):
                 logger.warning(

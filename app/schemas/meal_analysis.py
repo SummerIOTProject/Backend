@@ -28,12 +28,15 @@ class ComparedFoodItem(BaseModel):
     item_name: str
     consumed_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
+    before_description: str | None = None
+    after_description: str | None = None
     note: str | None = None
 
 
 class VisionImageComparisonResultSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    same_meal: bool
     overall_consumed_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
     items: list[ComparedFoodItem] = Field(min_length=1)
@@ -47,6 +50,7 @@ class VisionImageComparisonResultSchema(BaseModel):
 class ImageComparisonAnalysisResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    same_meal: bool
     overall_consumed_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
     items: list[ComparedFoodItem] = Field(min_length=1)

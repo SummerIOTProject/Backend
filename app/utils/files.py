@@ -42,14 +42,15 @@ def validate_mime_type(mime_type: str | None, *, strict_status: bool = False) ->
     return str(mime_type)
 
 
-def validate_file_size(file_bytes: bytes, *, strict_status: bool = False) -> None:
-    max_size = settings.MAX_IMAGE_SIZE_MB * 1024 * 1024
+def validate_file_size(file_bytes: bytes, *, strict_status: bool = False, max_size_mb: int | None = None) -> None:
+    resolved_max_size_mb = int(max_size_mb if max_size_mb is not None else settings.MAX_IMAGE_SIZE_MB)
+    max_size = resolved_max_size_mb * 1024 * 1024
     if len(file_bytes) > max_size:
         exception_class = PayloadTooLargeException if strict_status else BadRequestException
         raise exception_class(
             message="이미지 크기 제한을 초과했습니다.",
             code="IMAGE_TOO_LARGE",
-            detail=f"최대 {settings.MAX_IMAGE_SIZE_MB}MB 허용",
+            detail=f"최대 {resolved_max_size_mb}MB 허용",
         )
 
 
@@ -84,7 +85,14 @@ def file_to_base64(path: str | Path) -> str:
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
 
 
-def read_upload_file(upload_file: UploadFile, *, validate_filename_extension: bool = True, strict_status: bool = False) -> tuple[bytes, str, str]:
+def read_upload_file(
+    upload_file: UploadFile,
+    *,
+    validate_filename_extension: bool = True,
+    strict_status: bool = False,
+    max_size_mb: int | None = None,
+    decode_error_code: str = "INVALID_IMAGE_FORMAT",
+) -> tuple[bytes, str, str]:
     declared_mime_type = validate_mime_type(upload_file.content_type, strict_status=strict_status)
     filename = upload_file.filename or "upload.jpg"
     if validate_filename_extension:
@@ -92,13 +100,13 @@ def read_upload_file(upload_file: UploadFile, *, validate_filename_extension: bo
     file_bytes = upload_file.file.read()
     if not file_bytes:
         raise BadRequestException(message="빈 이미지 파일은 업로드할 수 없습니다.", code="EMPTY_IMAGE_FILE", detail="file is empty")
-    validate_file_size(file_bytes, strict_status=strict_status)
+    validate_file_size(file_bytes, strict_status=strict_status, max_size_mb=max_size_mb)
     upload_file.file.seek(0)
     try:
         Image.open(io.BytesIO(file_bytes)).verify()
         image = Image.open(io.BytesIO(file_bytes))
     except (UnidentifiedImageError, OSError) as exc:
-        raise BadRequestException(message="유효하지 않은 이미지 파일입니다.", code="INVALID_IMAGE_FORMAT", detail="Pillow verification failed") from exc
+        raise BadRequestException(message="이미지 디코딩에 실패했습니다.", code=decode_error_code, detail="Pillow verification failed") from exc
     image = ImageOps.exif_transpose(image)
     image.load()
     detected_format = (image.format or FORMAT_BY_MIME.get(declared_mime_type) or "").upper()
@@ -119,7 +127,7 @@ def read_upload_file(upload_file: UploadFile, *, validate_filename_extension: bo
         save_kwargs["quality"] = settings.ANALYSIS_IMAGE_JPEG_QUALITY
     image.save(output, format=save_format, **save_kwargs)
     processed_bytes = output.getvalue()
-    validate_file_size(processed_bytes, strict_status=strict_status)
+    validate_file_size(processed_bytes, strict_status=strict_status, max_size_mb=max_size_mb)
     actual_mime_type = MIME_BY_FORMAT[save_format]
     return processed_bytes, actual_mime_type, EXTENSION_BY_FORMAT[save_format]
 
