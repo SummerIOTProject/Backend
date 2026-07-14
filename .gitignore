@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 venv/
 .pytest_cache/
 __pycache__/
@@ -11,3 +13,5 @@ uploads/before/*
 uploads/after/*
 !uploads/before/.gitkeep
 !uploads/after/.gitkeep
+
+artifacts/

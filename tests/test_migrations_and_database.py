@@ -25,7 +25,9 @@ def test_alembic_upgrade_head_seeds_allergens(tmp_path, monkeypatch):
     db_path = tmp_path / "alembic_test.db"
     db_url = f"sqlite:///{db_path}"
     monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.delenv("DATABASE_URL_UNPOOLED", raising=False)
     monkeypatch.setattr(settings, "DATABASE_URL", db_url)
+    monkeypatch.setattr(settings, "DATABASE_URL_UNPOOLED", None)
 
     config = Config(str(Path("alembic.ini").resolve()))
     config.set_main_option("sqlalchemy.url", db_url)
