@@ -1,0 +1,13 @@
+.env
+venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+*.db
+meal_service.db
+
+uploads/before/*
+uploads/after/*
+!uploads/before/.gitkeep
+!uploads/after/.gitkeep
