@@ -22,6 +22,38 @@ class VisionAnalysisResultSchema(BaseModel):
     analysis_note: str = "식전·식후 이미지 비교 결과"
 
 
+class ComparedFoodItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_name: str
+    consumed_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    note: str | None = None
+
+
+class VisionImageComparisonResultSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overall_consumed_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    items: list[ComparedFoodItem] = Field(min_length=1)
+    summary: str
+    warnings: list[str] = Field(default_factory=list)
+    analysis_possible: bool = True
+    same_meal: bool = True
+    analysis_impossible_reason: str | None = None
+
+
+class ImageComparisonAnalysisResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overall_consumed_ratio: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    items: list[ComparedFoodItem] = Field(min_length=1)
+    summary: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class MealAnalysisResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

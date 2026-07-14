@@ -15,7 +15,7 @@ from app.utils.enums import ImageType
 router = APIRouter(tags=["Meal Images"])
 
 
-@router.post("/me/meal-records/{meal_record_id}/images/before", response_model=CommonResponse[MealImageUploadResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/me/meal-records/{meal_record_id}/images/before", response_model=CommonResponse[MealImageUploadResponse], status_code=status.HTTP_201_CREATED, deprecated=True)
 def upload_my_before_image(
     meal_record_id: int,
     file: UploadFile = File(...),
@@ -28,7 +28,7 @@ def upload_my_before_image(
     return CommonResponse(message="식전 이미지가 업로드되었습니다.", data=MealImageUploadResponse(image_id=image.id, image_url=f"/api/v1/me/meal-images/{image.id}"))
 
 
-@router.post("/me/meal-records/{meal_record_id}/images/after", response_model=CommonResponse[MealImageUploadResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/me/meal-records/{meal_record_id}/images/after", response_model=CommonResponse[MealImageUploadResponse], status_code=status.HTTP_201_CREATED, deprecated=True)
 def upload_my_after_image(
     meal_record_id: int,
     file: UploadFile = File(...),
@@ -41,7 +41,7 @@ def upload_my_after_image(
     return CommonResponse(message="식후 이미지가 업로드되었습니다.", data=MealImageUploadResponse(image_id=image.id, image_url=f"/api/v1/me/meal-images/{image.id}"))
 
 
-@router.get("/me/meal-records/{meal_record_id}/images", response_model=CommonResponse[list[MealImageResponse]])
+@router.get("/me/meal-records/{meal_record_id}/images", response_model=CommonResponse[list[MealImageResponse]], deprecated=True)
 def list_my_images(
     meal_record_id: int,
     current_user=Depends(get_current_user),

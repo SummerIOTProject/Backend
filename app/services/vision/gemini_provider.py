@@ -9,8 +9,17 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from app.core.config import settings
-from app.schemas.meal_analysis import VisionAnalysisResultSchema
-from app.services.vision.base import GeminiVisionError, VisionMenuInput, VisionProvider, build_instruction, build_result_schema, retry_with_backoff
+from app.schemas.meal_analysis import VisionAnalysisResultSchema, VisionImageComparisonResultSchema
+from app.services.vision.base import (
+    GeminiVisionError,
+    VisionMenuInput,
+    VisionProvider,
+    build_compare_instruction,
+    build_compare_result_schema,
+    build_instruction,
+    build_result_schema,
+    retry_with_backoff,
+)
 from app.utils.enums import AnalysisType
 
 logger = logging.getLogger(__name__)
@@ -127,6 +136,48 @@ class GeminiVisionProvider(VisionProvider):
         after_mime_type: str,
         menu_items: list[VisionMenuInput],
     ) -> VisionAnalysisResultSchema:
+        return await self._run_structured_analysis(
+            before_image=before_image,
+            before_mime_type=before_mime_type,
+            after_image=after_image,
+            after_mime_type=after_mime_type,
+            prompt_text=build_instruction(menu_items),
+            schema=build_result_schema(),
+            parser=VisionAnalysisResultSchema.model_validate_json,
+            item_count=len(menu_items),
+        )
+
+    async def compare_images(
+        self,
+        *,
+        before_image: bytes,
+        before_mime_type: str,
+        after_image: bytes,
+        after_mime_type: str,
+    ) -> VisionImageComparisonResultSchema:
+        return await self._run_structured_analysis(
+            before_image=before_image,
+            before_mime_type=before_mime_type,
+            after_image=after_image,
+            after_mime_type=after_mime_type,
+            prompt_text=build_compare_instruction(),
+            schema=build_compare_result_schema(),
+            parser=VisionImageComparisonResultSchema.model_validate_json,
+            item_count=0,
+        )
+
+    async def _run_structured_analysis(
+        self,
+        *,
+        before_image: bytes,
+        before_mime_type: str,
+        after_image: bytes,
+        after_mime_type: str,
+        prompt_text: str,
+        schema: dict,
+        parser,
+        item_count: int,
+    ):
         request_id = uuid4().hex
         start_time = time.perf_counter()
         try:
@@ -137,11 +188,12 @@ class GeminiVisionProvider(VisionProvider):
                         before_mime_type=before_mime_type,
                         after_image=after_image,
                         after_mime_type=after_mime_type,
-                        menu_items=menu_items,
+                        prompt_text=prompt_text,
+                        schema=schema,
                     ),
                     timeout=getattr(self, "timeout_seconds", settings.VISION_TIMEOUT_SECONDS),
                 )
-                return self._parse_response(response)
+                return self._parse_response(response, parser=parser)
 
             async def _on_retry(exc: Exception, attempt: int):
                 logger.warning(
@@ -160,7 +212,7 @@ class GeminiVisionProvider(VisionProvider):
                 self.provider_name,
                 request_id,
                 self.model_name,
-                len(menu_items),
+                item_count,
                 round((time.perf_counter() - start_time) * 1000, 2),
             )
             return result
@@ -176,7 +228,8 @@ class GeminiVisionProvider(VisionProvider):
         before_mime_type: str,
         after_image: bytes,
         after_mime_type: str,
-        menu_items: list[VisionMenuInput],
+        prompt_text: str,
+        schema: dict,
     ):
         from google.genai import types
 
@@ -188,22 +241,22 @@ class GeminiVisionProvider(VisionProvider):
                     types.Part.from_bytes(data=before_image, mime_type=before_mime_type),
                     types.Part.from_text(text="두 번째 이미지는 식후 이미지입니다."),
                     types.Part.from_bytes(data=after_image, mime_type=after_mime_type),
-                    types.Part.from_text(text=build_instruction(menu_items)),
+                    types.Part.from_text(text=prompt_text),
                 ],
             )
         ]
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=build_result_schema(),
+            response_json_schema=schema,
             temperature=0,
         )
         return await self.client.aio.models.generate_content(model=self.model_name, contents=contents, config=config)
 
     @staticmethod
-    def _parse_response(response) -> VisionAnalysisResultSchema:
+    def _parse_response(response, *, parser):
         output_text = getattr(response, "text", None)
         if not output_text:
             output_text = getattr(response, "output_text", None)
         if not output_text:
             raise GeminiVisionError(message="VLM 응답 형식이 올바르지 않습니다.", code="INVALID_VLM_RESPONSE", status_code=400, detail="empty structured response")
-        return VisionAnalysisResultSchema.model_validate_json(output_text)
+        return parser(output_text)

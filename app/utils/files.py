@@ -7,7 +7,7 @@ from fastapi import UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.config import settings
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import BadRequestException, PayloadTooLargeException, UnsupportedMediaTypeException
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -31,9 +31,10 @@ def validate_extension(filename: str) -> str:
     return extension
 
 
-def validate_mime_type(mime_type: str | None) -> str:
+def validate_mime_type(mime_type: str | None, *, strict_status: bool = False) -> str:
     if mime_type not in ALLOWED_MIME_TYPES:
-        raise BadRequestException(
+        exception_class = UnsupportedMediaTypeException if strict_status else BadRequestException
+        raise exception_class(
             message="지원하지 않는 이미지 형식입니다.",
             code="INVALID_IMAGE_FORMAT",
             detail=f"허용 MIME 타입: {sorted(ALLOWED_MIME_TYPES)}",
@@ -41,10 +42,11 @@ def validate_mime_type(mime_type: str | None) -> str:
     return str(mime_type)
 
 
-def validate_file_size(file_bytes: bytes) -> None:
+def validate_file_size(file_bytes: bytes, *, strict_status: bool = False) -> None:
     max_size = settings.MAX_IMAGE_SIZE_MB * 1024 * 1024
     if len(file_bytes) > max_size:
-        raise BadRequestException(
+        exception_class = PayloadTooLargeException if strict_status else BadRequestException
+        raise exception_class(
             message="이미지 크기 제한을 초과했습니다.",
             code="IMAGE_TOO_LARGE",
             detail=f"최대 {settings.MAX_IMAGE_SIZE_MB}MB 허용",
@@ -82,12 +84,15 @@ def file_to_base64(path: str | Path) -> str:
     return base64.b64encode(Path(path).read_bytes()).decode("ascii")
 
 
-def read_upload_file(upload_file: UploadFile) -> tuple[bytes, str, str]:
-    declared_mime_type = validate_mime_type(upload_file.content_type)
+def read_upload_file(upload_file: UploadFile, *, validate_filename_extension: bool = True, strict_status: bool = False) -> tuple[bytes, str, str]:
+    declared_mime_type = validate_mime_type(upload_file.content_type, strict_status=strict_status)
     filename = upload_file.filename or "upload.jpg"
-    validate_extension(filename)
+    if validate_filename_extension:
+        validate_extension(filename)
     file_bytes = upload_file.file.read()
-    validate_file_size(file_bytes)
+    if not file_bytes:
+        raise BadRequestException(message="빈 이미지 파일은 업로드할 수 없습니다.", code="EMPTY_IMAGE_FILE", detail="file is empty")
+    validate_file_size(file_bytes, strict_status=strict_status)
     upload_file.file.seek(0)
     try:
         Image.open(io.BytesIO(file_bytes)).verify()
@@ -98,7 +103,8 @@ def read_upload_file(upload_file: UploadFile) -> tuple[bytes, str, str]:
     image.load()
     detected_format = (image.format or FORMAT_BY_MIME.get(declared_mime_type) or "").upper()
     if detected_format not in EXTENSION_BY_FORMAT:
-        raise BadRequestException(message="지원하지 않는 이미지 형식입니다.", code="INVALID_IMAGE_FORMAT", detail=f"detected format={detected_format}")
+        exception_class = UnsupportedMediaTypeException if strict_status else BadRequestException
+        raise exception_class(message="지원하지 않는 이미지 형식입니다.", code="INVALID_IMAGE_FORMAT", detail=f"detected format={detected_format}")
     max_dimension = max(image.size)
     if max_dimension > settings.ANALYSIS_IMAGE_MAX_DIMENSION:
         image.thumbnail((settings.ANALYSIS_IMAGE_MAX_DIMENSION, settings.ANALYSIS_IMAGE_MAX_DIMENSION))
@@ -113,7 +119,7 @@ def read_upload_file(upload_file: UploadFile) -> tuple[bytes, str, str]:
         save_kwargs["quality"] = settings.ANALYSIS_IMAGE_JPEG_QUALITY
     image.save(output, format=save_format, **save_kwargs)
     processed_bytes = output.getvalue()
-    validate_file_size(processed_bytes)
+    validate_file_size(processed_bytes, strict_status=strict_status)
     actual_mime_type = MIME_BY_FORMAT[save_format]
     return processed_bytes, actual_mime_type, EXTENSION_BY_FORMAT[save_format]
 
