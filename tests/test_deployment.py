@@ -247,11 +247,11 @@ def test_dockerignore_excludes_env():
     assert ".env" in content
 
 
-def test_pyproject_has_vercel_entrypoint():
-    content = Path("pyproject.toml").read_text(encoding="utf-8")
-    assert 'entrypoint = "app.main:app"' in content
+def test_pyproject_removed_for_vercel_requirements_detection():
+    assert not Path("pyproject.toml").exists()
 
 
 def test_vercel_json_has_max_duration():
     content = Path("vercel.json").read_text(encoding="utf-8")
     assert '"maxDuration": 300' in content
+    assert '"app/index.py"' in content
