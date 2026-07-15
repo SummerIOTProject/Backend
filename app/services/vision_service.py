@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from app.schemas.meal_analysis import VisionAnalysisResultSchema, VisionImageComparisonResultSchema
-from app.services.vision import VisionMenuInput, build_vision_provider
+from app.services.vision import VisionMenuInput, VisionProvider, build_vision_provider
 from app.utils.enums import AnalysisType
 
 
 class VisionService:
-    def __init__(self) -> None:
-        self.provider = build_vision_provider()
+    def __init__(self, provider: VisionProvider | None = None) -> None:
+        self.provider = provider or build_vision_provider()
 
     def current_analysis_type(self) -> AnalysisType:
         return self.provider.analysis_type

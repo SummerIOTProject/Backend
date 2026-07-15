@@ -73,6 +73,20 @@ def test_gemini_vlm_requires_model():
         Settings(_env_file=None, APP_ENV="development", VISION_ANALYSIS_MODE="GEMINI_VLM", GEMINI_API_KEY="gemini-key", GEMINI_MODEL="")
 
 
+def test_gemini_vlm_does_not_require_openai_credentials():
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="development",
+        VISION_ANALYSIS_MODE="GEMINI_VLM",
+        GEMINI_API_KEY="gemini-key",
+        GEMINI_MODEL="gemini-2.5-flash",
+        OPENAI_API_KEY=None,
+        OPENAI_MODEL=None,
+        OPENAI_VISION_MODEL=None,
+    )
+    assert settings.VISION_ANALYSIS_MODE == "GEMINI_VLM"
+
+
 def test_openai_vlm_requires_model_or_legacy_vision_model():
     with pytest.raises(ValueError):
         Settings(_env_file=None, APP_ENV="development", VISION_ANALYSIS_MODE="OPENAI_VLM", OPENAI_API_KEY="openai-key", OPENAI_MODEL="", VISION_MODEL="")

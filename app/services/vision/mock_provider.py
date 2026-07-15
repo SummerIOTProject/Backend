@@ -43,15 +43,29 @@ class MockVisionProvider(VisionProvider):
         after_mime_type: str,
     ) -> VisionImageComparisonResultSchema:
         return VisionImageComparisonResultSchema(
+            same_meal=True,
             overall_consumed_ratio=0.72,
             confidence=0.81,
             items=[
-                {"item_name": "밥", "consumed_ratio": 0.85, "confidence": 0.88, "note": "소량만 남아 있습니다."},
-                {"item_name": "육류 반찬", "consumed_ratio": 0.65, "confidence": 0.74, "note": "일부가 남아 있습니다."},
+                {
+                    "item_name": "밥",
+                    "consumed_ratio": 0.85,
+                    "confidence": 0.88,
+                    "before_description": "밥 칸이 대부분 채워져 있습니다.",
+                    "after_description": "밥이 소량 남아 있습니다.",
+                    "note": "소량만 남아 있습니다.",
+                },
+                {
+                    "item_name": "육류 반찬",
+                    "consumed_ratio": 0.65,
+                    "confidence": 0.74,
+                    "before_description": "육류 반찬이 한 칸에 담겨 있습니다.",
+                    "after_description": "일부 반찬이 남아 있습니다.",
+                    "note": "일부가 남아 있습니다.",
+                },
             ],
             summary="밥은 대부분 섭취했고 일부 반찬이 남았습니다.",
             warnings=["사진 촬영 각도가 달라 정확도가 낮아질 수 있습니다."],
             analysis_possible=True,
-            same_meal=True,
             analysis_impossible_reason=None,
         )

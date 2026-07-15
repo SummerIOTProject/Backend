@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str | None = None
 
     OPENAI_API_KEY: str | None = None
+    OPENAI_VISION_MODEL: str | None = None
     OPENAI_MODEL: str | None = None
     VISION_MODEL: str | None = None
     VISION_ANALYSIS_MODE: str = "MOCK"
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     VERCEL_OIDC_TOKEN: str | None = None
     UPLOAD_DIR: str = "uploads"
     MAX_IMAGE_SIZE_MB: int = 4
+    MAX_ANALYSIS_IMAGE_SIZE_MB: int | None = None
     ANALYSIS_IMAGE_MAX_DIMENSION: int = 1600
     ANALYSIS_IMAGE_JPEG_QUALITY: int = 80
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"])
@@ -72,6 +74,14 @@ class Settings(BaseSettings):
     @property
     def resolved_openai_model(self) -> str | None:
         return self.OPENAI_MODEL or self.VISION_MODEL
+
+    @property
+    def resolved_compare_openai_model(self) -> str | None:
+        return self.OPENAI_VISION_MODEL or self.OPENAI_MODEL or self.VISION_MODEL
+
+    @property
+    def max_analysis_image_size_mb(self) -> int:
+        return int(self.MAX_ANALYSIS_IMAGE_SIZE_MB if self.MAX_ANALYSIS_IMAGE_SIZE_MB is not None else self.MAX_IMAGE_SIZE_MB)
 
     @property
     def is_vercel_blob(self) -> bool:

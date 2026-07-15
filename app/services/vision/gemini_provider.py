@@ -41,9 +41,9 @@ class GeminiVisionProvider(VisionProvider):
     @staticmethod
     def _create_client():
         if not settings.GEMINI_API_KEY:
-            raise GeminiVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="GEMINI_API_KEY missing")
+            raise GeminiVisionError(message="VLM API 키가 설정되지 않았습니다.", code="VLM_API_KEY_NOT_CONFIGURED", status_code=500, detail="GEMINI_API_KEY missing")
         if not settings.GEMINI_MODEL:
-            raise GeminiVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="GEMINI_MODEL missing")
+            raise GeminiVisionError(message="VLM 모델이 설정되지 않았습니다.", code="VLM_MODEL_NOT_CONFIGURED", status_code=500, detail="GEMINI_MODEL missing")
         from google import genai
 
         return genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -164,6 +164,7 @@ class GeminiVisionProvider(VisionProvider):
             schema=build_compare_result_schema(),
             parser=VisionImageComparisonResultSchema.model_validate_json,
             item_count=0,
+            retry_parse_once=True,
         )
 
     async def _run_structured_analysis(
@@ -177,23 +178,33 @@ class GeminiVisionProvider(VisionProvider):
         schema: dict,
         parser,
         item_count: int,
+        retry_parse_once: bool = False,
     ):
         request_id = uuid4().hex
         start_time = time.perf_counter()
         try:
             async def _call():
-                response = await asyncio.wait_for(
-                    self._generate_content(
-                        before_image=before_image,
-                        before_mime_type=before_mime_type,
-                        after_image=after_image,
-                        after_mime_type=after_mime_type,
-                        prompt_text=prompt_text,
-                        schema=schema,
-                    ),
-                    timeout=getattr(self, "timeout_seconds", settings.VISION_TIMEOUT_SECONDS),
-                )
-                return self._parse_response(response, parser=parser)
+                attempts = 2 if retry_parse_once else 1
+                last_exc = None
+                for _ in range(attempts):
+                    response = await asyncio.wait_for(
+                        self._generate_content(
+                            before_image=before_image,
+                            before_mime_type=before_mime_type,
+                            after_image=after_image,
+                            after_mime_type=after_mime_type,
+                            prompt_text=prompt_text,
+                            schema=schema,
+                        ),
+                        timeout=getattr(self, "timeout_seconds", settings.VISION_TIMEOUT_SECONDS),
+                    )
+                    try:
+                        return self._parse_response(response, parser=parser)
+                    except (json.JSONDecodeError, ValidationError) as exc:
+                        last_exc = exc
+                if last_exc is not None:
+                    raise last_exc
+                raise GeminiVisionError(message="VLM 응답 형식이 올바르지 않습니다.", code="INVALID_VLM_RESPONSE", status_code=400, detail="empty response")
 
             async def _on_retry(exc: Exception, attempt: int):
                 logger.warning(
@@ -233,15 +244,16 @@ class GeminiVisionProvider(VisionProvider):
     ):
         from google.genai import types
 
+        before_part = types.Part.from_bytes(data=before_image, mime_type=before_mime_type)
+        after_part = types.Part.from_bytes(data=after_image, mime_type=after_mime_type)
+        instruction_part = types.Part.from_text(text=prompt_text)
         contents = [
             types.Content(
                 role="user",
                 parts=[
-                    types.Part.from_text(text="첫 번째 이미지는 식전 이미지입니다."),
-                    types.Part.from_bytes(data=before_image, mime_type=before_mime_type),
-                    types.Part.from_text(text="두 번째 이미지는 식후 이미지입니다."),
-                    types.Part.from_bytes(data=after_image, mime_type=after_mime_type),
-                    types.Part.from_text(text=prompt_text),
+                    before_part,
+                    after_part,
+                    instruction_part,
                 ],
             )
         ]

@@ -56,6 +56,11 @@ class BadGatewayException(AppException):
         super().__init__(message=message, code=code, status_code=502, detail=detail)
 
 
+class GatewayTimeoutException(AppException):
+    def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
+        super().__init__(message=message, code=code, status_code=504, detail=detail)
+
+
 class ServerException(AppException):
     def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
         super().__init__(message=message, code=code, status_code=500, detail=detail)
