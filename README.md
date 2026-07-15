@@ -412,6 +412,14 @@ VISION_MAX_RETRIES=2
 - 학생 식별정보는 Gemini로 보내지 않습니다.
 - 급식판만 촬영하고 얼굴, 학번, RFID 카드가 사진에 나오지 않도록 안내해야 합니다.
 
+`POST /api/v1/analyses/compare-images`도 위 설정이 `GEMINI_VLM`이면 Gemini를 사용합니다. 이 API는 식전·식후 이미지 두 장만 메모리에서 비교하며 식사 기록, RFID, 당일 급식, 이미지·분석 결과 저장을 사용하지 않습니다. 직접 비교 API에서는 `MOCK` 모드를 허용하지 않으며 Gemini 실패 시 OpenAI 또는 MOCK으로 대체하지 않습니다.
+
+직접 비교 이미지의 개별 최대 크기는 필요하면 다음 값으로 별도 조정할 수 있습니다.
+
+```env
+MAX_ANALYSIS_IMAGE_SIZE_MB=4
+```
+
 ## OPENAI_VLM
 
 ```env

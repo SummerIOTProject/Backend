@@ -36,14 +36,13 @@ class ComparedFoodItem(BaseModel):
 class VisionImageComparisonResultSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    same_meal: bool
     overall_consumed_ratio: float = Field(ge=0.0, le=1.0)
     confidence: float = Field(ge=0.0, le=1.0)
     items: list[ComparedFoodItem] = Field(min_length=1)
     summary: str
     warnings: list[str] = Field(default_factory=list)
     analysis_possible: bool = True
-    same_meal: bool = True
+    same_meal: bool
     analysis_impossible_reason: str | None = None
 
 

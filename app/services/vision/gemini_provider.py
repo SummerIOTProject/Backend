@@ -41,9 +41,9 @@ class GeminiVisionProvider(VisionProvider):
     @staticmethod
     def _create_client():
         if not settings.GEMINI_API_KEY:
-            raise GeminiVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="GEMINI_API_KEY missing")
+            raise GeminiVisionError(message="VLM API 키가 설정되지 않았습니다.", code="VLM_API_KEY_NOT_CONFIGURED", status_code=500, detail="GEMINI_API_KEY missing")
         if not settings.GEMINI_MODEL:
-            raise GeminiVisionError(message="VLM 설정 오류입니다.", code="VISION_CONFIGURATION_ERROR", status_code=500, detail="GEMINI_MODEL missing")
+            raise GeminiVisionError(message="VLM 모델이 설정되지 않았습니다.", code="VLM_MODEL_NOT_CONFIGURED", status_code=500, detail="GEMINI_MODEL missing")
         from google import genai
 
         return genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -244,15 +244,16 @@ class GeminiVisionProvider(VisionProvider):
     ):
         from google.genai import types
 
+        before_part = types.Part.from_bytes(data=before_image, mime_type=before_mime_type)
+        after_part = types.Part.from_bytes(data=after_image, mime_type=after_mime_type)
+        instruction_part = types.Part.from_text(text=prompt_text)
         contents = [
             types.Content(
                 role="user",
                 parts=[
-                    types.Part.from_text(text="첫 번째 이미지는 식전 이미지입니다."),
-                    types.Part.from_bytes(data=before_image, mime_type=before_mime_type),
-                    types.Part.from_text(text="두 번째 이미지는 식후 이미지입니다."),
-                    types.Part.from_bytes(data=after_image, mime_type=after_mime_type),
-                    types.Part.from_text(text=prompt_text),
+                    before_part,
+                    after_part,
+                    instruction_part,
                 ],
             )
         ]

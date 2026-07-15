@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from app.schemas.meal_analysis import VisionAnalysisResultSchema, VisionImageComparisonResultSchema
-from app.services.vision.base import GeminiVisionError, OpenAIVisionError, VisionMenuInput
+from app.services.vision.base import GeminiVisionError, OpenAIVisionError, VisionMenuInput, VisionProviderError
 from app.services.vision.factory import build_compare_vision_provider, build_vision_provider
 from app.services.vision.gemini_provider import GeminiVisionProvider
 from app.services.vision.mock_provider import MockVisionProvider
@@ -85,6 +85,7 @@ def test_provider_factory_selects_modes(monkeypatch):
 def test_compare_provider_factory_requires_openai_api_key(monkeypatch):
     from app.core.config import settings
 
+    settings.VISION_ANALYSIS_MODE = "OPENAI_VLM"
     settings.OPENAI_API_KEY = None
     settings.OPENAI_VISION_MODEL = "gpt-4.1-mini"
     with pytest.raises(OpenAIVisionError) as exc_info:
@@ -95,12 +96,59 @@ def test_compare_provider_factory_requires_openai_api_key(monkeypatch):
 def test_compare_provider_factory_uses_openai_vision_model(monkeypatch):
     from app.core.config import settings
 
+    settings.VISION_ANALYSIS_MODE = "OPENAI_VLM"
     settings.OPENAI_API_KEY = "openai-key"
     settings.OPENAI_VISION_MODEL = "gpt-4.1-mini"
     monkeypatch.setattr(OpenAIVisionProvider, "_create_client", lambda self: SimpleNamespace(responses=SimpleNamespace()))
     provider = build_compare_vision_provider()
     assert isinstance(provider, OpenAIVisionProvider)
     assert provider.model_name == "gpt-4.1-mini"
+
+
+def test_compare_provider_factory_uses_gemini_without_openai_credentials(monkeypatch):
+    from app.core.config import settings
+
+    settings.VISION_ANALYSIS_MODE = "GEMINI_VLM"
+    settings.GEMINI_API_KEY = "gemini-key"
+    settings.GEMINI_MODEL = "gemini-2.5-flash"
+    settings.OPENAI_API_KEY = None
+    settings.OPENAI_MODEL = None
+    settings.OPENAI_VISION_MODEL = None
+    monkeypatch.setattr(GeminiVisionProvider, "_create_client", staticmethod(lambda: SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace()))))
+
+    provider = build_compare_vision_provider()
+
+    assert isinstance(provider, GeminiVisionProvider)
+    assert provider.model_name == "gemini-2.5-flash"
+
+
+@pytest.mark.parametrize(
+    ("api_key", "model", "expected_code"),
+    [
+        (None, "gemini-2.5-flash", "VLM_API_KEY_NOT_CONFIGURED"),
+        ("gemini-key", None, "VLM_MODEL_NOT_CONFIGURED"),
+    ],
+)
+def test_compare_provider_factory_validates_only_gemini_credentials(api_key, model, expected_code):
+    from app.core.config import settings
+
+    settings.VISION_ANALYSIS_MODE = "GEMINI_VLM"
+    settings.GEMINI_API_KEY = api_key
+    settings.GEMINI_MODEL = model
+    settings.OPENAI_API_KEY = None
+    with pytest.raises(VisionProviderError) as exc_info:
+        build_compare_vision_provider()
+    assert exc_info.value.code == expected_code
+
+
+@pytest.mark.parametrize("mode", ["MOCK", "UNKNOWN_VLM"])
+def test_compare_provider_factory_rejects_non_vlm_and_unknown_modes(mode):
+    from app.core.config import settings
+
+    settings.VISION_ANALYSIS_MODE = mode
+    with pytest.raises(VisionProviderError) as exc_info:
+        build_compare_vision_provider()
+    assert exc_info.value.code == "VLM_MODE_NOT_SUPPORTED"
 
 
 def test_openai_analysis_integration_uses_db_menu_names(client, create_account, create_menu, create_meal, sample_image_file, monkeypatch):
@@ -445,6 +493,38 @@ def test_gemini_compare_images_parses_structured_response(monkeypatch):
     )
     assert isinstance(result, VisionImageComparisonResultSchema)
     assert result.summary == "주요 반찬을 절반 이상 섭취했습니다."
+
+
+def test_gemini_compare_images_sends_before_after_then_instruction():
+    provider = GeminiVisionProvider.__new__(GeminiVisionProvider)
+    provider.model_name = "gemini-2.5-flash"
+    captured = {}
+
+    class DummyModels:
+        async def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(text="{}")
+
+    provider.client = SimpleNamespace(aio=SimpleNamespace(models=DummyModels()))
+    asyncio.run(
+        provider._generate_content(
+            before_image=b"before-bytes",
+            before_mime_type="image/jpeg",
+            after_image=b"after-bytes",
+            after_mime_type="image/webp",
+            prompt_text="comparison instruction",
+            schema={"type": "object"},
+        )
+    )
+
+    parts = captured["contents"][0].parts
+    assert parts[0].inline_data.data == b"before-bytes"
+    assert parts[0].inline_data.mime_type == "image/jpeg"
+    assert parts[1].inline_data.data == b"after-bytes"
+    assert parts[1].inline_data.mime_type == "image/webp"
+    assert parts[2].text == "comparison instruction"
+    assert captured["config"].response_mime_type == "application/json"
+    assert captured["config"].response_json_schema == {"type": "object"}
 
 
 @pytest.mark.parametrize("status_code", [500, 502, 503, 504, 429])

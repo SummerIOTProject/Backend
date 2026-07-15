@@ -80,18 +80,22 @@ def build_instruction(menu_items: list[VisionMenuInput]) -> str:
 
 def build_compare_instruction() -> str:
     return (
-        "당신은 학교 급식 식전·식후 이미지 비교 분석기입니다.\n"
-        "첫 번째 이미지는 반드시 식전(before) 이미지이고, 두 번째 이미지는 반드시 식후(after) 이미지입니다.\n"
-        "두 이미지가 같은 급식판 또는 같은 식사인지 먼저 판단하세요.\n"
-        "식전 사진에서 보이는 음식 구성과 식후 사진에서 남은 음식량을 비교하세요.\n"
-        "음식별 consumed_ratio는 먹은 비율이며 0.0~1.0 범위만 사용하세요.\n"
-        "overall_consumed_ratio는 전체 섭취율입니다.\n"
-        "confidence는 전체 판단 신뢰도입니다.\n"
-        "같은 식사인지 확실하지 않으면 same_meal을 false로 두고 warnings에 이유를 넣으세요.\n"
-        "분석이 불가능하면 analysis_possible을 false로 두고 analysis_impossible_reason을 작성하세요.\n"
-        "식후 사진의 음식량이 더 많아 보이면 warnings에 순서 오류 가능성을 명시하세요.\n"
-        "음식명을 확신할 수 없으면 추측하지 말고 '알 수 없는 반찬'처럼 일반적으로 표현하세요.\n"
-        "Markdown이나 설명문 없이 JSON만 반환하세요."
+        "첫 번째로 전달된 이미지는 식전(before), 두 번째로 전달된 이미지는 식후(after) 이미지입니다.\n"
+        "당신은 두 학교 급식 이미지만 비교하는 분석기입니다. 다음 순서와 기준을 지키세요.\n"
+        "1. 두 이미지가 같은 급식판 또는 같은 식사인지 판단하세요.\n"
+        "2. 식전 이미지의 음식 영역과 양을 파악하세요.\n"
+        "3. 식후 이미지에서 남은 음식 영역과 양을 파악하세요.\n"
+        "4. 각 음식의 섭취율(consumed_ratio)을 0.0~1.0으로 추정하세요.\n"
+        "5. 전체 섭취율(overall_consumed_ratio)을 0.0~1.0으로 추정하세요.\n"
+        "6. 각 음식의 신뢰도와 전체 신뢰도(confidence)를 0.0~1.0으로 계산하세요.\n"
+        "7. 촬영 각도, 조명, 가림, 음식 혼합 등 판단을 방해하는 요소를 warnings에 기록하세요.\n"
+        "8. 식후 음식량이 식전보다 많아 보이면 그 사실과 촬영 순서가 바뀌었을 가능성을 warnings에 기록하세요.\n"
+        "9. 음식 이름이 확실하지 않으면 지어내지 말고 '밥류', '국류', '알 수 없는 반찬'처럼 표현하세요.\n"
+        "10. 같은 식사인지 확실하지 않으면 same_meal=false로 하고 이유를 warnings에 기록하세요.\n"
+        "11. 비교 자체가 불가능하면 analysis_possible=false로 하고 analysis_impossible_reason을 작성하세요.\n"
+        "12. 학생 이름, 학번, 로그인 아이디, RFID 등 개인정보를 추측하거나 출력하지 마세요.\n"
+        "before_description과 after_description에는 각 이미지에서 실제로 관찰한 내용만 간결히 작성하세요.\n"
+        "Markdown, 코드 펜스, 추가 설명 없이 지정된 JSON 스키마만 반환하세요."
     )
 
 

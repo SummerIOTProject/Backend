@@ -44,8 +44,8 @@ class ImageComparisonService:
                 after_mime_type=after_mime_type,
             )
         except AppException as exc:
-            if exc.code == "INVALID_VLM_RESPONSE":
-                raise BadGatewayException(message="VLM 응답 형식이 올바르지 않습니다.", code="INVALID_VLM_RESPONSE", detail=exc.detail) from exc
+            if exc.code in {"INVALID_VLM_RESPONSE", "VLM_INVALID_RESPONSE"}:
+                raise BadGatewayException(message="VLM 응답 형식이 올바르지 않습니다.", code="VLM_INVALID_RESPONSE", detail=exc.detail) from exc
             if exc.code in {"VISION_AUTHENTICATION_FAILED", "VISION_PERMISSION_DENIED"}:
                 raise BadGatewayException(message="VLM 인증에 실패했습니다.", code=exc.code, detail=exc.detail) from exc
             if exc.code == "VISION_TIMEOUT":

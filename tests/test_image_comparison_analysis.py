@@ -196,7 +196,7 @@ def test_compare_images_invalid_vlm_response_returns_502(client, compare_headers
     monkeypatch.setattr("app.services.image_comparison_service.build_compare_vision_provider", lambda: DummyCompareProvider(error=InvalidVLMResponse()))
     response = _post_compare_images(client, headers=compare_headers, before_file=sample_image_file, after_file=sample_image_file)
     assert response.status_code == 502
-    assert response.json()["error"]["code"] == "INVALID_VLM_RESPONSE"
+    assert response.json()["error"]["code"] == "VLM_INVALID_RESPONSE"
 
 
 def test_compare_images_timeout_returns_504(client, compare_headers, sample_image_file, monkeypatch):
