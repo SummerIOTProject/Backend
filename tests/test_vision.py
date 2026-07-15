@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from app.schemas.meal_analysis import VisionAnalysisResultSchema
+from app.schemas.meal_analysis import VisionAnalysisResultSchema, VisionImageComparisonResultSchema
 from app.services.vision.base import GeminiVisionError, OpenAIVisionError, VisionMenuInput
 from app.services.vision.factory import build_vision_provider
 from app.services.vision.gemini_provider import GeminiVisionProvider
@@ -301,6 +301,62 @@ def test_gemini_provider_parses_structured_response(monkeypatch):
     )
     assert result.items[0].confidence == 0.7
     assert result.analysis_note == "식전·식후 이미지 비교 결과"
+
+
+def test_openai_compare_images_parses_structured_response():
+    from app.core.config import settings
+
+    settings.OPENAI_API_KEY = "openai-key"
+    settings.OPENAI_MODEL = "openai-model"
+    provider = OpenAIVisionProvider.__new__(OpenAIVisionProvider)
+    provider.provider_name = "openai"
+    provider.analysis_type = AnalysisType.OPENAI_VLM
+    provider.model_name = "openai-model"
+
+    class DummyResponses:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                output_text='{"overall_consumed_ratio":0.72,"confidence":0.81,"items":[{"item_name":"밥","consumed_ratio":0.85,"confidence":0.88,"note":"소량만 남아 있습니다."}],"summary":"밥은 대부분 섭취했습니다.","warnings":["사진 촬영 각도가 달라 정확도가 낮아질 수 있습니다."],"analysis_possible":true,"same_meal":true,"analysis_impossible_reason":null}'
+            )
+
+    provider.client = SimpleNamespace(responses=DummyResponses())
+    result = asyncio.run(
+        provider.compare_images(
+            before_image=b"before",
+            before_mime_type="image/jpeg",
+            after_image=b"after",
+            after_mime_type="image/png",
+        )
+    )
+    assert isinstance(result, VisionImageComparisonResultSchema)
+    assert result.items[0].item_name == "밥"
+    assert result.overall_consumed_ratio == 0.72
+
+
+def test_gemini_compare_images_parses_structured_response(monkeypatch):
+    provider = GeminiVisionProvider.__new__(GeminiVisionProvider)
+    provider.provider_name = "gemini"
+    provider.analysis_type = AnalysisType.GEMINI_VLM
+    provider.model_name = "gemini-model"
+    provider.timeout_seconds = 3
+    provider.client = SimpleNamespace()
+
+    async def fake_generate_content(**kwargs):
+        return SimpleNamespace(
+            text='{"overall_consumed_ratio":0.64,"confidence":0.77,"items":[{"item_name":"육류 반찬","consumed_ratio":0.60,"confidence":0.70,"note":"절반 이상 섭취"}],"summary":"주요 반찬을 절반 이상 섭취했습니다.","warnings":[],"analysis_possible":true,"same_meal":true,"analysis_impossible_reason":null}'
+        )
+
+    monkeypatch.setattr(provider, "_generate_content", fake_generate_content)
+    result = asyncio.run(
+        provider.compare_images(
+            before_image=b"before",
+            before_mime_type="image/jpeg",
+            after_image=b"after",
+            after_mime_type="image/webp",
+        )
+    )
+    assert isinstance(result, VisionImageComparisonResultSchema)
+    assert result.summary == "주요 반찬을 절반 이상 섭취했습니다."
 
 
 @pytest.mark.parametrize("status_code", [500, 502, 503, 504, 429])

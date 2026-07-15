@@ -41,6 +41,21 @@ class ConflictException(AppException):
         super().__init__(message=message, code=code, status_code=409, detail=detail)
 
 
+class UnsupportedMediaTypeException(AppException):
+    def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
+        super().__init__(message=message, code=code, status_code=415, detail=detail)
+
+
+class PayloadTooLargeException(AppException):
+    def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
+        super().__init__(message=message, code=code, status_code=413, detail=detail)
+
+
+class BadGatewayException(AppException):
+    def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
+        super().__init__(message=message, code=code, status_code=502, detail=detail)
+
+
 class ServerException(AppException):
     def __init__(self, *, message: str, code: str, detail: str | None = None) -> None:
         super().__init__(message=message, code=code, status_code=500, detail=detail)

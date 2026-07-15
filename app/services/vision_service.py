@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.schemas.meal_analysis import VisionAnalysisResultSchema
+from app.schemas.meal_analysis import VisionAnalysisResultSchema, VisionImageComparisonResultSchema
 from app.services.vision import VisionMenuInput, build_vision_provider
 from app.utils.enums import AnalysisType
 
@@ -28,5 +28,21 @@ class VisionService:
             after_image=after_image,
             after_mime_type=after_mime_type,
             menu_items=normalized_items,
+        )
+        return self.provider.analysis_type, result
+
+    async def compare_images(
+        self,
+        *,
+        before_image: bytes,
+        before_mime_type: str,
+        after_image: bytes,
+        after_mime_type: str,
+    ) -> tuple[AnalysisType, VisionImageComparisonResultSchema]:
+        result = await self.provider.compare_images(
+            before_image=before_image,
+            before_mime_type=before_mime_type,
+            after_image=after_image,
+            after_mime_type=after_mime_type,
         )
         return self.provider.analysis_type, result

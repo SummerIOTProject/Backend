@@ -6,6 +6,7 @@ from app.services.allergen_service import AllergenService
 from app.services.analysis_service import AnalysisService
 from app.services.auth_service import AuthService
 from app.services.image_service import ImageService
+from app.services.image_comparison_service import ImageComparisonService
 from app.services.meal_record_service import MealRecordService
 from app.services.meal_service import MealService
 from app.services.menu_service import MenuService
@@ -49,6 +50,10 @@ def get_image_service(db: Session = Depends(get_db)) -> ImageService:
 
 def get_analysis_service(db: Session = Depends(get_db)) -> AnalysisService:
     return AnalysisService(db)
+
+
+def get_image_comparison_service() -> ImageComparisonService:
+    return ImageComparisonService()
 
 
 def get_nutrition_service(db: Session = Depends(get_db)) -> NutritionService:
