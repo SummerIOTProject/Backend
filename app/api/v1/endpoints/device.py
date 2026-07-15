@@ -34,10 +34,8 @@ def scan_rfid(
         rec = recommendation_map[meal_menu_item.id]
         guidance.append(
             {
-                "meal_menu_item_id": meal_menu_item.id,
                 "menu_id": meal_menu_item.menu_id,
                 "menu_name": meal_menu_item.menu.name,
-                "allergens": sorted(menu_allergen_codes),
                 "matched_allergens": matched,
                 "is_restricted": bool(matched),
                 "recommendation_level": rec.recommendation_level.value,

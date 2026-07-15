@@ -44,7 +44,19 @@ def test_rfid_scan_success_with_meal_type(client, create_account, create_menu, c
     client.post("/api/v1/me/rfid-cards", headers=student["headers"], json={"uid": "04A3B29C7F6180"})
     response = client.post("/api/v1/device/rfid/scan", headers={"X-Device-Key": "device-secret"}, json={"uid": "04A3B29C7F6180", "meal_type": "LUNCH"})
     assert response.status_code == 200
-    assert response.json()["data"]["meal"]["meal_type"] == "LUNCH"
+    data = response.json()["data"]
+    assert set(data) == {"user", "meal", "menu_guidance"}
+    assert set(data["user"]) == {"user_id", "name", "student_number"}
+    assert set(data["meal"]) == {"id", "meal_date", "meal_type"}
+    assert data["meal"]["meal_type"] == "LUNCH"
+    assert set(data["menu_guidance"][0]) == {
+        "menu_id",
+        "menu_name",
+        "matched_allergens",
+        "is_restricted",
+        "recommendation_level",
+        "recommended_serving_g",
+    }
 
 
 def test_meal_not_found_for_requested_meal_type(client, create_account, create_menu, create_meal):
@@ -88,5 +100,4 @@ def test_scan_uses_configured_school_only(client, create_account, create_menu, c
     client.post("/api/v1/me/rfid-cards", headers=student["headers"], json={"uid": "04A3B29C7F6180"})
     response = client.post("/api/v1/device/rfid/scan", headers={"X-Device-Key": "device-secret"}, json={"uid": "04A3B29C7F6180", "meal_type": "LUNCH"})
     assert response.status_code == 200
-    assert response.json()["data"]["meal"]["school_name"] == "국민대학교"
-    assert response.json()["data"]["meal"]["menu_items"][0]["name"] == "본교메뉴"
+    assert response.json()["data"]["menu_guidance"][0]["menu_name"] == "본교메뉴"

@@ -106,11 +106,14 @@ def to_device_scan_response(card, meal, guidance_items) -> DeviceRfidScanRespons
     return DeviceRfidScanResponse(
         user=DeviceUserResponse(
             user_id=card.user.id,
-            login_id=card.user.login_id,
             name=card.user.name,
             student_number=card.user.student_number,
         ),
-        meal=DeviceMealResponse(**to_meal_response(meal).model_dump()),
+        meal=DeviceMealResponse(
+            id=meal.id,
+            meal_date=meal.meal_date,
+            meal_type=meal.meal_type,
+        ),
         menu_guidance=guidance_items,
     )
 

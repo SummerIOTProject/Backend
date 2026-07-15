@@ -1,8 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.meal import MealDetailResponse
 from app.utils.enums import MealType
 
 
@@ -40,20 +39,19 @@ class RestrictedMenuResponse(BaseModel):
 
 class DeviceUserResponse(BaseModel):
     user_id: int
-    login_id: str
     name: str
     student_number: str
 
 
-class DeviceMealResponse(MealDetailResponse):
-    pass
+class DeviceMealResponse(BaseModel):
+    id: int
+    meal_date: date
+    meal_type: MealType
 
 
 class DeviceMenuGuidanceResponse(BaseModel):
-    meal_menu_item_id: int
     menu_id: int
     menu_name: str
-    allergens: list[str]
     matched_allergens: list[str]
     is_restricted: bool
     recommendation_level: str
