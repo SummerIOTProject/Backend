@@ -113,6 +113,11 @@ def test_development_allows_example_secrets():
     assert settings.DEVICE_API_KEY == "replace-with-device-key"
 
 
+def test_default_cors_origins_include_safemeal_frontend():
+    settings = Settings(_env_file=None, APP_ENV="development")
+    assert "https://safemeal.vercel.app" in settings.CORS_ORIGINS
+
+
 def test_database_url_sqlite_relative_normalized():
     settings = Settings(_env_file=None, APP_ENV="development", DATABASE_URL="sqlite:///./meal_service.db")
     assert settings.DATABASE_URL == "sqlite:///./meal_service.db"

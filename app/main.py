@@ -24,9 +24,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG, lifespan=lifespan)
+cors_origins = list(dict.fromkeys([*settings.CORS_ORIGINS, "https://safemeal.vercel.app"]))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

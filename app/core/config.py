@@ -46,7 +46,13 @@ class Settings(BaseSettings):
     MAX_ANALYSIS_IMAGE_SIZE_MB: int | None = None
     ANALYSIS_IMAGE_MAX_DIMENSION: int = 1600
     ANALYSIS_IMAGE_JPEG_QUALITY: int = 80
-    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"])
+    CORS_ORIGINS: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "https://safemeal.vercel.app",
+        ]
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
