@@ -61,6 +61,9 @@ def test_mock_analysis_success(client, create_account, create_menu, create_meal,
     assert response.status_code == 200
     assert len(response.json()["data"]["items"]) == 2
     assert response.json()["data"]["analysis_type"] == "MOCK"
+    for item in response.json()["data"]["items"]:
+        assert 0.85 <= item["consumed_ratio"] <= 0.94
+        assert item["consumption_level"] == "MOST"
 
 
 def test_provider_factory_selects_modes(monkeypatch):
