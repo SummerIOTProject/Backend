@@ -32,3 +32,4 @@ def test_allergy_intersection_restriction(client, create_account, create_menu, c
     )
     assert response.status_code == 200
     assert response.json()["data"]["menu_guidance"][0]["is_restricted"] is True
+    assert response.json()["data"]["menu_guidance"][0]["matched_allergens"] == ["우유"]

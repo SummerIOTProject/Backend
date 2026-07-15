@@ -27,17 +27,18 @@ def scan_rfid(
     guidance = []
     recommendations = recommendation_service.generate_for_meal(user_id=card.user_id, meal_id=meal.id)
     recommendation_map = {item.meal_menu_item_id: item for item in recommendations}
-    user_allergen_codes = {item.allergen.code for item in card.user.allergies}
+    user_allergens = {item.allergen.code: item.allergen.name_ko for item in card.user.allergies}
     for meal_menu_item in meal.meal_menu_items:
         menu_allergen_codes = {link.allergen.code for link in meal_menu_item.menu.allergens}
-        matched = sorted(user_allergen_codes & menu_allergen_codes)
+        matched_codes = sorted(user_allergens.keys() & menu_allergen_codes)
+        matched = [user_allergens[code] for code in matched_codes]
         rec = recommendation_map[meal_menu_item.id]
         guidance.append(
             {
                 "menu_id": meal_menu_item.menu_id,
                 "menu_name": meal_menu_item.menu.name,
                 "matched_allergens": matched,
-                "is_restricted": bool(matched),
+                "is_restricted": bool(matched_codes),
                 "recommendation_level": rec.recommendation_level.value,
                 "recommended_serving_g": rec.recommended_serving_g,
             }
